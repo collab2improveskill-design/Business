@@ -1,0 +1,8 @@
+{
+  "name": "Kirana AI Assistant",
+  "description": "A modern point-of-sale (POS) and inventory management SaaS application for Kirana stores, featuring AI-powered voice billing to streamline operations.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
