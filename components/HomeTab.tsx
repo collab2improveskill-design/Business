@@ -105,6 +105,16 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
       console.error('Speech recognition error:', event.error);
       setIsListening(false);
     };
+
+    // Cleanup listeners when component unmounts or dependencies change
+    return () => {
+        if (recognition) {
+            recognition.stop();
+            recognition.onresult = null;
+            recognition.onend = null;
+            recognition.onerror = null;
+        }
+    };
   }, [processVoiceCommand]);
   
   const handleItemChange = (index: number, field: keyof Omit<EditableBillItem, 'id'>, value: string) => {

@@ -1,13 +1,18 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, AlertCircle, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Check, Trash2 } from 'lucide-react';
+import { Plus, AlertCircle, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Trash2, Square } from 'lucide-react';
 import { translations } from '../translations';
 import { INITIAL_LOW_STOCK_ITEMS, INITIAL_KHATA_CUSTOMERS } from '../constants';
 import type { LowStockItem, KhataCustomer, KhataTransaction, EditableBillItem } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 
+const generateId = () => `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
 interface KarobarTabProps {
     language: 'ne' | 'en';
+    addTransaction: (name: string, amount: number) => void;
 }
 
 interface ToggleOption {
@@ -15,16 +20,14 @@ interface ToggleOption {
     value: string;
 }
 
-const generateId = () => `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
 const ToggleSwitch: React.FC<{ options: ToggleOption[]; value: string; onChange: (value: string) => void; }> = ({ options, value, onChange }) => {
     const activeIndex = options.findIndex(opt => opt.value === value);
 
     return (
-        <div className="relative flex w-full p-1 bg-black rounded-full border border-gray-700">
+        <div className="relative flex w-full p-1 bg-gray-200 rounded-full">
             {/* Sliding background */}
             <div
-                className="absolute top-1 bottom-1 w-1/2 bg-slate-700 rounded-full shadow-inner transition-transform duration-300 ease-out"
+                className="absolute top-1 bottom-1 w-1/2 bg-purple-600 rounded-full shadow-md transition-transform duration-300 ease-out"
                 style={{
                     transform: `translateX(${activeIndex * 100}%)`,
                 }}
@@ -36,7 +39,7 @@ const ToggleSwitch: React.FC<{ options: ToggleOption[]; value: string; onChange:
                     key={option.value}
                     onClick={() => onChange(option.value)}
                     className={`relative z-10 flex-1 py-2 text-center text-sm font-semibold transition-colors duration-300 rounded-full ${
-                        activeIndex === index ? 'text-white' : 'text-gray-400'
+                        activeIndex === index ? 'text-white' : 'text-gray-600'
                     }`}
                     aria-pressed={activeIndex === index}
                 >
@@ -114,16 +117,15 @@ const KhataDetailModal: React.FC<{
     onClose: () => void;
     language: 'ne' | 'en';
     onAddTransaction: (customerId: string, transaction: Omit<KhataTransaction, 'id' | 'date'>) => void;
-}> = ({ customer, isOpen, onClose, language, onAddTransaction }) => {
+    addTransaction: (name: string, amount: number) => void;
+}> = ({ customer, isOpen, onClose, language, onAddTransaction, addTransaction }) => {
     const t = translations[language];
-
+    
+    // Voice to Bill State
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
     const [billItems, setBillItems] = useState<EditableBillItem[]>([]);
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = useMemo(() => SpeechRecognition ? new SpeechRecognition() : null, [SpeechRecognition]);
 
     const currentBalance = useMemo(() => {
         if (!customer) return 0;
@@ -131,9 +133,29 @@ const KhataDetailModal: React.FC<{
             return txn.type === 'debit' ? balance + txn.amount : balance - txn.amount;
         }, 0);
     }, [customer]);
+    
+    // Reset bill state when modal opens or customer changes
+    useEffect(() => {
+        if (isOpen) {
+            setBillItems([]);
+            setApiError(null);
+            setIsListening(false);
+            setIsProcessing(false);
+        } else {
+             if (recognition) {
+                recognition.stop();
+            }
+        }
+    }, [isOpen]);
+    
+    if (recognition) {
+        recognition.continuous = true;
+        recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
+        recognition.interimResults = true;
+    }
 
     const processVoiceCommand = useCallback(async (transcript: string) => {
-        if (!transcript || !customer) return;
+        if (!transcript) return;
         setIsProcessing(true);
         setApiError(null);
         try {
@@ -145,36 +167,25 @@ const KhataDetailModal: React.FC<{
                 unit: item.unit || '',
                 price: String(item.price || 0),
             }));
-            setBillItems(newEditableItems);
+            // CRITICAL FIX: Append new items to the existing list, don't overwrite.
+            setBillItems(prevItems => [...prevItems, ...newEditableItems]);
         } catch (error) {
             setApiError(error instanceof Error ? error.message : "An unknown error occurred.");
-            setTimeout(() => setApiError(null), 3000);
         } finally {
             setIsProcessing(false);
         }
-    }, [language, customer]);
+    }, [language]);
 
-    const handleListen = () => {
-        if (!recognition) {
-            alert("Speech recognition is not supported in your browser.");
-            return;
-        }
-        if (isListening) {
-            recognition.stop();
-        } else {
-            recognition.start();
-        }
-    };
-    
     useEffect(() => {
-        if (!recognition) return;
-        recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
-        recognition.continuous = false;
-        recognition.interimResults = false;
+        if (!recognition || !isOpen) return;
 
-        recognition.onstart = () => setIsListening(true);
         recognition.onresult = (event: any) => {
-            const final_transcript = event.results[0][0].transcript;
+            let final_transcript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    final_transcript += event.results[i][0].transcript;
+                }
+            }
             if (final_transcript.trim()) {
                 processVoiceCommand(final_transcript.trim());
             }
@@ -185,31 +196,29 @@ const KhataDetailModal: React.FC<{
             console.error('Speech recognition error:', event.error);
             setIsListening(false);
         };
-    }, [recognition, language, processVoiceCommand]);
 
-    useEffect(() => {
-        if (!isOpen) {
-            setBillItems([]);
-            setApiError(null);
-            if (recognition && isListening) {
-              recognition.stop();
+        // Cleanup function to remove listeners
+        return () => {
+            if (recognition) {
+                recognition.onresult = null;
+                recognition.onend = null;
+                recognition.onerror = null;
             }
-            setIsListening(false);
-            setIsProcessing(false);
-        }
-    }, [isOpen, recognition, isListening]);
-    
-    if (!isOpen || !customer) return null;
+        };
+    }, [processVoiceCommand, isOpen]);
 
-    const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US');
-    
-    const totalBillAmount = useMemo(() => {
-        return billItems.reduce((sum, item) => {
-            const price = parseFloat(item.price) || 0;
-            const quantity = parseFloat(item.quantity) || 0;
-            return sum + (price * quantity);
-        }, 0);
-    }, [billItems]);
+    const handleListen = () => {
+        if (!recognition) {
+            alert("Speech recognition is not supported in your browser.");
+            return;
+        }
+        if (isListening) {
+            recognition.stop();
+        } else {
+            recognition.start();
+            setIsListening(true);
+        }
+    };
 
     const handleItemChange = (index: number, field: keyof Omit<EditableBillItem, 'id'>, value: string) => {
         const updatedItems = [...billItems];
@@ -221,23 +230,36 @@ const KhataDetailModal: React.FC<{
         setBillItems(billItems.filter(item => item.id !== id));
     };
 
-    const handleAddItem = () => {
-        setBillItems([...billItems, { id: generateId(), name: '', quantity: '1', unit: '', price: '0' }]);
+    const totalBillAmount = useMemo(() => {
+        return billItems.reduce((sum, item) => {
+            const price = parseFloat(item.price) || 0;
+            const quantity = parseFloat(item.quantity) || 0;
+            return sum + (price * quantity);
+        }, 0);
+    }, [billItems]);
+
+    const confirmBill = () => {
+        if (billItems.length === 0 || !customer) return;
+
+        const description = billItems.map(item => `${item.name} (${item.quantity} ${item.unit})`).join(', ');
+
+        onAddTransaction(customer.id, { description, amount: totalBillAmount, type: 'debit' });
+        addTransaction(customer.name, totalBillAmount);
+        
+        setBillItems([]);
     };
     
-    const handleSaveTransaction = () => {
-        if (billItems.length === 0) return;
+    if (!isOpen || !customer) return null;
 
-        const description = billItems
-            .map(item => `${item.name} (${item.quantity} ${item.unit})`)
-            .join(', ');
-
-        onAddTransaction(customer.id, {
-            description: description,
-            amount: totalBillAmount,
-            type: 'debit',
-        });
-        setBillItems([]);
+    const formatDateTime = (dateString: string) => {
+        const options: Intl.DateTimeFormatOptions = {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        };
+        return new Date(dateString).toLocaleString(language === 'ne' ? 'ne-NP' : 'en-US', options);
     };
 
     return (
@@ -247,7 +269,7 @@ const KhataDetailModal: React.FC<{
                     <h2 className="text-xl font-bold">{t.khata_detail_title}</h2>
                     <button onClick={onClose}><X /></button>
                 </div>
-                <div className={`flex-1 overflow-y-auto transition-all duration-300 ${billItems.length > 0 ? 'pb-80' : 'pb-24'}`}>
+                <div className="flex-1 overflow-y-auto pb-24">
                     <div className="bg-gray-50 rounded-lg p-4 mb-4">
                         <p className="text-lg font-bold text-gray-800 flex items-center gap-2"><User className="w-5 h-5 text-purple-600"/>{customer.name}</p>
                         <p className="text-sm text-gray-600 flex items-center gap-2 mt-2"><Phone className="w-4 h-4 text-gray-500"/>{customer.phone}</p>
@@ -266,7 +288,7 @@ const KhataDetailModal: React.FC<{
                              <div key={txn.id} className={`p-3 rounded-lg flex justify-between items-center ${txn.type === 'debit' ? 'bg-red-50' : 'bg-green-50'}`}>
                                 <div>
                                     <p className="font-medium text-gray-800 text-sm">{txn.description}</p>
-                                    <p className="text-xs text-gray-500">{formatDate(txn.date)}</p>
+                                    <p className="text-xs text-gray-500">{formatDateTime(txn.date)}</p>
                                 </div>
                                 <p className={`font-bold text-sm ${txn.type === 'debit' ? 'text-red-600' : 'text-green-700'}`}>
                                     {txn.type === 'debit' ? '+' : '-'} रु. {txn.amount.toFixed(2)}
@@ -275,21 +297,14 @@ const KhataDetailModal: React.FC<{
                         ))}
                     </div>
                 </div>
-
-                {billItems.length > 0 && (
-                    <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t-2 border-purple-200 shadow-lg rounded-t-xl max-h-[50vh] flex flex-col">
-                         <div className="flex justify-between items-center mb-2">
+                
+                 {billItems.length > 0 && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t-2 border-purple-200 shadow-lg rounded-t-xl">
+                        <div className="flex justify-between items-center mb-3">
                             <h3 className="font-bold text-lg text-gray-800">{t.edit_bill}</h3>
                             <button onClick={() => setBillItems([])} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
                         </div>
-                        <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                            <div className="grid grid-cols-12 gap-2 text-xs font-bold text-gray-500 px-2 sticky top-0 bg-white py-1">
-                                <div className="col-span-5">{t.item_name}</div>
-                                <div className="col-span-2 text-center">{t.quantity}</div>
-                                <div className="col-span-2">{t.unit}</div>
-                                <div className="col-span-2 text-center">{t.price}</div>
-                                <div className="col-span-1"></div>
-                            </div>
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
                             {billItems.map((item, idx) => (
                                 <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
                                     <input type="text" value={item.name} onChange={(e) => handleItemChange(idx, 'name', e.target.value)} className="col-span-5 p-2 border rounded-md text-sm" />
@@ -302,29 +317,43 @@ const KhataDetailModal: React.FC<{
                                 </div>
                             ))}
                         </div>
-                        <button onClick={handleAddItem} className="mt-2 text-sm font-medium text-purple-600 flex items-center gap-1">
-                            <Plus className="w-4 h-4"/> {t.add_item}
-                        </button>
                         <div className="border-t mt-3 pt-3 flex justify-between items-center">
                             <span className="text-gray-800 font-bold text-lg">{t.total}</span>
                             <span className="text-purple-600 font-extrabold text-xl">रु. {totalBillAmount.toFixed(2)}</span>
                         </div>
-                        <button onClick={handleSaveTransaction} className="w-full mt-3 bg-purple-600 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2">
-                             <Check className="w-5 h-5" /> {t.save_transaction}
+                        <button onClick={confirmBill} className="w-full mt-3 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors">
+                            {t.save_transaction}
                         </button>
                     </div>
                 )}
                 
-                {apiError && <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm">{apiError}</div>}
+                {apiError && (
+                    <div className="absolute bottom-24 bg-red-100 border-red-500 text-red-700 p-2 rounded-lg mx-4 text-sm" role="alert">
+                        <p>{apiError}</p>
+                    </div>
+                )}
+
+                {isListening && (
+                    <div className="absolute bottom-44 right-6 bg-gray-800 text-white text-sm rounded-lg px-3 py-1.5 shadow-lg">
+                        {t.listening_hint}
+                    </div>
+                )}
                 
                 <button
                     onClick={handleListen}
-                    disabled={isProcessing || billItems.length > 0}
-                    className={`absolute bottom-24 right-6 text-white rounded-full p-4 shadow-lg transition-all transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center
-                    ${isListening ? 'bg-red-500 animate-pulse' : isProcessing ? 'bg-yellow-500' : 'bg-purple-600'}`}
-                    aria-label={t.add_transaction_voice}
+                    disabled={isProcessing}
+                    className={`absolute bottom-24 right-6 rounded-full p-4 shadow-lg transition-all transform hover:scale-105 flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed ${
+                        isListening ? 'bg-red-500 animate-pulse' : 'bg-purple-600'
+                    }`}
+                    aria-label={isListening ? t.stop_listening : t.add_transaction_voice}
                 >
-                    {isProcessing ? <Loader className="w-6 h-6 animate-spin"/> : <Mic className="w-6 h-6" />}
+                    {isProcessing ? (
+                        <Loader className="w-6 h-6 text-white animate-spin" />
+                    ) : isListening ? (
+                        <Square className="w-6 h-6 text-white" />
+                    ) : (
+                        <Mic className="w-6 h-6 text-white" />
+                    )}
                 </button>
             </div>
         </div>
@@ -392,7 +421,7 @@ const KhataListView: React.FC<{
 };
 
 
-const KarobarTab: React.FC<KarobarTabProps> = ({ language }) => {
+const KarobarTab: React.FC<KarobarTabProps> = ({ language, addTransaction }) => {
     const [activeView, setActiveView] = useState('khata');
     const t = translations[language];
     
@@ -426,6 +455,7 @@ const KarobarTab: React.FC<KarobarTabProps> = ({ language }) => {
             ...transactionData
         };
         
+        // CRITICAL FIX: Ensure new transactions are appended, not overwriting.
         const updatedCustomers = khataCustomers.map(cust => {
             if (cust.id === customerId) {
                 const updatedTransactions = [...cust.transactions, newTransaction];
@@ -435,6 +465,7 @@ const KarobarTab: React.FC<KarobarTabProps> = ({ language }) => {
         });
         setKhataCustomers(updatedCustomers);
 
+        // Also update the currently selected customer in state to instantly reflect changes in the modal
         setSelectedCustomer(prev => {
             if(prev && prev.id === customerId) {
                 return {...prev, transactions: [...prev.transactions, newTransaction]}
@@ -452,6 +483,7 @@ const KarobarTab: React.FC<KarobarTabProps> = ({ language }) => {
                 customer={selectedCustomer}
                 language={language}
                 onAddTransaction={handleAddTransaction}
+                addTransaction={addTransaction}
             />
             <h1 className="text-2xl font-bold text-gray-800">{t.billing_tab}</h1>
             <ToggleSwitch options={toggleOptions} value={activeView} onChange={setActiveView} />

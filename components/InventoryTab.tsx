@@ -368,6 +368,9 @@ const InventoryTab: React.FC<InventoryTabProps> = ({ language }) => {
         return () => {
           if (recognition) {
             recognition.stop();
+            recognition.onresult = null;
+            recognition.onend = null;
+            recognition.onerror = null;
           }
         }
     }, [language, recognition]);

@@ -18,7 +18,7 @@ const App: React.FC = () => {
       name,
       amount,
       time: language === 'ne' ? 'भर्खरै' : 'Just now',
-      paid: true,
+      paid: true, // Assuming Khata transactions added to sales are 'paid' in this context
     };
     setTransactions(prev => [newTransaction, ...prev]);
   };
@@ -36,7 +36,7 @@ const App: React.FC = () => {
       case 'inventory': 
         return <InventoryTab language={language} />;
       case 'billing':
-        return <KarobarTab language={language} />;
+        return <KarobarTab language={language} addTransaction={addTransaction} />;
       default: 
         return <PlaceholderTab pageName={TABS.find(t => t.id === activeTab)?.label || ''} language={language} />;
     }
