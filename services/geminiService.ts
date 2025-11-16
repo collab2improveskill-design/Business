@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { ParsedBill, ParsedInventoryItem, ParsedKhataTransaction } from '../types';
+import type { ParsedBill, ParsedBillItemFromImage, ParsedKhataTransaction } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
@@ -78,11 +78,11 @@ const inventoryParsingSchema = {
     items: {
         type: Type.OBJECT,
         properties: {
-            name: {
+            item_name: {
                 type: Type.STRING,
                 description: "Name of the purchased item. Be as specific as possible.",
             },
-            quantity: {
+            quantity_bought: {
                 type: Type.NUMBER,
                 description: "Quantity of the item purchased.",
             },
@@ -90,20 +90,24 @@ const inventoryParsingSchema = {
                 type: Type.STRING,
                 description: "Unit of the item (e.g., kg, packet, liter, piece).",
             },
-            price: {
+            purchase_price_per_unit: {
                 type: Type.NUMBER,
-                description: "Price per unit of the item in Rupees."
+                description: "Price per unit at which the item was purchased, in Rupees."
+            },
+            suggested_category: {
+                type: Type.STRING,
+                description: "A suggested category for the item (e.g., 'Grocery', 'Beverage', 'Snack', 'Household')."
             }
         },
-        required: ["name", "quantity", "unit", "price"],
+        required: ["item_name", "quantity_bought", "unit", "purchase_price_per_unit", "suggested_category"],
     },
 };
 
-export const parseInventoryFromImage = async (base64ImageData: string, language: 'ne' | 'en'): Promise<Omit<ParsedInventoryItem, 'id'>[]> => {
+export const parseInventoryFromImage = async (base64ImageData: string, language: 'ne' | 'en'): Promise<Omit<ParsedBillItemFromImage, 'id'>[]> => {
     try {
         const prompt = language === 'ne'
-            ? "यो किराना पसलको खरिद बिल हो। यसबाट प्रत्येक सामानको नाम, मात्रा, एकाइ, र प्रति एकाइ मूल्य निकालेर JSON array को रूपमा सूची बनाउनुहोस्।"
-            : "This is a purchase bill from a Kirana store. Extract each item's name, quantity, unit, and price per unit from it and format it as a JSON array.";
+            ? "You are an inventory management assistant. Analyze this invoice image and extract all line items. Return a JSON array. For each object, include: 'item_name', 'quantity_bought', 'unit', 'purchase_price_per_unit', and 'suggested_category'."
+            : "You are an inventory management assistant. Analyze this invoice image and extract all line items. Return a JSON array. For each object, include: 'item_name', 'quantity_bought', 'unit', 'purchase_price_per_unit', and 'suggested_category'.";
         
         const imagePart = {
             inlineData: {
@@ -130,7 +134,14 @@ export const parseInventoryFromImage = async (base64ImageData: string, language:
             throw new Error("Invalid response format from API: expected an array.");
         }
         
-        return parsedData as Omit<ParsedInventoryItem, 'id'>[];
+        // Map from AI response schema to our internal type
+        return parsedData.map(item => ({
+            name: item.item_name,
+            quantity: item.quantity_bought,
+            unit: item.unit,
+            price: item.purchase_price_per_unit,
+            suggestedCategory: item.suggested_category || 'Other',
+        })) as Omit<ParsedBillItemFromImage, 'id'>[];
 
     } catch (error) {
         console.error("Error parsing inventory from image:", error);

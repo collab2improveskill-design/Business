@@ -20,12 +20,14 @@ export interface LowStockItem {
   unit: string;
 }
 
+// Transaction for a cash or QR sale (Home Tab)
 export interface Transaction {
-  id: number;
-  name: string;
+  id: string;
+  customerName: string;
   amount: number;
-  time: string;
-  paid: boolean;
+  date: string; // ISO Date string
+  items: Pick<EditableBillItem, 'inventoryId' | 'quantity' | 'name'>[];
+  paymentMethod: 'cash' | 'qr';
 }
 
 export interface AiSuggestion {
@@ -38,21 +40,25 @@ export interface InventoryItem {
   name: string;
   stock: number;
   unit: string;
-  price: number;
+  price: number; // This is the SELLING price
   lastUpdated: string; // ISO Date string
-  priceHistory: {
-    price: number;
+  category: string;
+  lowStockThreshold: number;
+  purchasePriceHistory: {
+    price: number; // This is the PURCHASE price
     date: string; // ISO Date string
+    quantity: number; // The quantity bought in this transaction
   }[];
 }
 
 // Type for items parsed from an uploaded bill image by AI
-export interface ParsedInventoryItem {
+export interface ParsedBillItemFromImage {
   id: string; // Add a temporary ID for list rendering
   name: string;
   quantity: number;
   unit: string;
-  price: number;
+  price: number; // This is the PURCHASE price from the bill
+  suggestedCategory: string;
 }
 
 
@@ -75,6 +81,7 @@ export interface KhataTransaction {
   description: string;
   amount: number;
   type: 'debit' | 'credit'; // debit = customer owes more, credit = customer paid
+  items: Pick<EditableBillItem, 'inventoryId' | 'quantity' | 'name'>[];
 }
 
 export interface KhataCustomer {
@@ -94,7 +101,8 @@ export interface ParsedKhataTransaction {
 
 // Shared type for bill editing UI
 export interface EditableBillItem {
-  id: string;
+  id: string; // Temporary UI ID
+  inventoryId?: string; // ID of the item in the master inventory, if matched
   name: string;
   quantity: string;
   unit: string;

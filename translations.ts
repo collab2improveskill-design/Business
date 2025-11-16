@@ -5,7 +5,6 @@ export const translations = {
     order: "अर्डर",
     paid: "भुक्तानी भयो",
     due: "बाँकी",
-    just_now: "भर्खरै",
     remaining: "बाँकी:",
     error: "त्रुटि",
     guest_customer: "अतिथि ग्राहक",
@@ -13,6 +12,15 @@ export const translations = {
     date: "मिति",
     description: "विवरण",
     cancel: "रद्द गर्नुहोस्",
+    new_item: "नयाँ",
+    yes: "हो",
+    no: "होइन",
+    
+    // Time
+    moments_ago: "भर्खरै",
+    minutes_ago: "{minutes} मिनेट अगाडि",
+    hours_ago: "{hours} घण्टा अगाडि",
+    days_ago: "{days} দিন अगाडि",
     
     // Tabs
     home_tab: "गृहपृष्ठ",
@@ -49,7 +57,11 @@ export const translations = {
     confirm_and_pay: "बिल पक्का गर्नुहोस्",
     ai_suggestions: "AI सुझाव",
     low_stock_alert: "कम स्टक चेतावनी",
+    no_low_stock_items: "कम स्टक भएका कुनै सामान छैनन्।",
     recent_sales: "हालको बिक्री",
+    insufficient_stock_error: "अपर्याप्त स्टक!",
+    confirm_cancel_sale_title: "बिक्री रद्द गर्ने?",
+    confirm_cancel_sale_desc: "के तपाईं यो बिक्री रद्द गर्न निश्चित हुनुहुन्छ? सामानहरू स्टकमा फिर्ता हुनेछन्।",
     
     // Inventory
     inventory_management: "स्टक व्यवस्थापन",
@@ -68,12 +80,29 @@ export const translations = {
     manual_entry_title: "नयाँ सामान थप्नुहोस्",
     manual_entry_desc: "एक पटकमा एउटा सामानको विवरण भर्नुहोस्।",
     stock: "स्टक",
+    purchase_price: "खरिद मूल्य",
+    selling_price: "बिक्री मूल्य",
     save_item_button: "सामान बचत गर्नुहोस्",
-    price_history_title: "मूल्य इतिहास",
-    no_price_history: "यस सामानको लागि कुनै मूल्य इतिहास छैन।",
+    price_history_title: "खरिद मूल्य इतिहास",
+    no_price_history: "यस सामानको लागि कुनै खरिद इतिहास छैन।",
     add_item_button: "सामान थप्नुहोस्",
+    quick_add_stock: "स्टक थप्नुहोस्",
     add_item_choice_title: "नयाँ सामान थप्नुहोस्",
     add_item_choice_desc: "तपाईं कसरी थप्न चाहनुहुन्छ?",
+    category: "वर्ग",
+    low_stock_threshold: "कम स्टक अलर्ट",
+    low_stock_threshold_desc: "स्टक तल हुँदा अलर्ट गर्नुहोस्",
+    sort_by: "क्रमबद्ध गर्नुहोस्",
+    sort_name_asc: "नाम (A-Z)",
+    sort_stock_asc: "स्टक (कम-बढी)",
+    sort_category_asc: "वर्ग (A-Z)",
+    select_all: "सबै छान्नुहोस्",
+    apply_margin: "१५% मार्जिन लगाउनुहोस्",
+    assign_category: "वर्ग असाइन गर्नुहोस्",
+    purchase_log: "खरिद लग",
+    purchase_date: "खरिद मिति",
+    qty_bought: "खरिद मात्रा",
+    price_paid_per_unit: "प्रति एकाइ मूल्य",
 
     // Karobar Tab & Khata
     khata_view: "खाता",
@@ -97,6 +126,17 @@ export const translations = {
     speak_transaction_prompt: "सामान र रकम बोल्नुहोस्...",
     confirm_transaction: "कारोबार पुष्टि गर्नुहोस्",
     save_transaction: "कारोबार बचत गर्नुहोस्",
+    confirm_delete_txn_title: "कारोबार हटाउने?",
+    confirm_delete_txn_desc: "के तपाईं यो कारोबार हटाउन निश्चित हुनुहुन्छ? यो कार्य उल्टाउन सकिँदैन।",
+    
+    // Payment Modal
+    confirm_bill: "बिल पक्का गर्नुहोस्",
+    select_payment_method: "भुक्तानी विधि छान्नुहोस्",
+    pay_by_cash: "नगद भुक्तानी",
+    pay_by_qr: "QR बाट भुक्तानी",
+    pay_on_credit: "खातामा उधारो",
+    select_customer: "ग्राहक छान्नुहोस्",
+    or_create_new: "वा नयाँ बनाउनुहोस्",
     
     // Placeholder
     under_construction: "यो खण्ड निर्माणाधीन छ।",
@@ -107,7 +147,6 @@ export const translations = {
     order: "Order",
     paid: "Paid",
     due: "Due",
-    just_now: "Just now",
     remaining: "Remaining:",
     error: "Error",
     guest_customer: "Guest Customer",
@@ -115,7 +154,16 @@ export const translations = {
     date: "Date",
     description: "Description",
     cancel: "Cancel",
-    
+    new_item: "New",
+    yes: "Yes",
+    no: "No",
+
+    // Time
+    moments_ago: "Moments ago",
+    minutes_ago: "{minutes} min ago",
+    hours_ago: "{hours}h ago",
+    days_ago: "{days}d ago",
+
     // Tabs
     home_tab: "Home",
     inventory_tab: "Inventory",
@@ -151,7 +199,12 @@ export const translations = {
     confirm_and_pay: "Confirm & Pay",
     ai_suggestions: "AI Suggestions",
     low_stock_alert: "Low Stock Alert",
+    no_low_stock_items: "No items are low on stock.",
     recent_sales: "Recent Sales",
+    insufficient_stock_error: "Insufficient stock!",
+    confirm_cancel_sale_title: "Cancel Sale?",
+    confirm_cancel_sale_desc: "Are you sure you want to cancel this sale? Items will be returned to stock.",
+
     
     // Inventory
     inventory_management: "Inventory Management",
@@ -170,12 +223,29 @@ export const translations = {
     manual_entry_title: "Add New Item",
     manual_entry_desc: "Fill in the details for a single item at a time.",
     stock: "Stock",
+    purchase_price: "Purchase Price",
+    selling_price: "Selling Price",
     save_item_button: "Save Item",
-    price_history_title: "Price History",
-    no_price_history: "No price history available for this item.",
+    price_history_title: "Purchase Price History",
+    no_price_history: "No purchase history available for this item.",
     add_item_button: "Add Item",
+    quick_add_stock: "Add Stock",
     add_item_choice_title: "Add a New Item",
     add_item_choice_desc: "How would you like to add it?",
+    category: "Category",
+    low_stock_threshold: "Low Stock Alert",
+    low_stock_threshold_desc: "Alert when stock is below",
+    sort_by: "Sort by",
+    sort_name_asc: "Name (A-Z)",
+    sort_stock_asc: "Stock (Low-High)",
+    sort_category_asc: "Category (A-Z)",
+    select_all: "Select All",
+    apply_margin: "Apply 15% Margin",
+    assign_category: "Assign Category",
+    purchase_log: "Purchase Log",
+    purchase_date: "Purchase Date",
+    qty_bought: "Qty Bought",
+    price_paid_per_unit: "Price/Unit",
 
     // Karobar Tab & Khata
     khata_view: "Khata",
@@ -199,6 +269,17 @@ export const translations = {
     speak_transaction_prompt: "Speak the item and amount...",
     confirm_transaction: "Confirm Transaction",
     save_transaction: "Save Transaction",
+    confirm_delete_txn_title: "Delete Transaction?",
+    confirm_delete_txn_desc: "Are you sure you want to delete this transaction? This action cannot be undone.",
+
+    // Payment Modal
+    confirm_bill: "Confirm Bill",
+    select_payment_method: "Select Payment Method",
+    pay_by_cash: "Pay by Cash",
+    pay_by_qr: "Pay via QR",
+    pay_on_credit: "Pay on Credit (Khata)",
+    select_customer: "Select Customer",
+    or_create_new: "or create new",
 
     // Placeholder
     under_construction: "This section is under construction.",

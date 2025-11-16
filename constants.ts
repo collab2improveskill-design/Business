@@ -32,9 +32,9 @@ export const INITIAL_KHATA_CUSTOMERS: KhataCustomer[] = [
         address: 'नयाँ बानेश्वर, काठमाडौं',
         pan: '123456789',
         transactions: [
-            { id: 'txn-1', date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), description: 'चिनी (2 के.जी), तेल (1 लि.)', amount: 360, type: 'debit' },
-            { id: 'txn-2', date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), description: 'भुक्तानी प्राप्त भयो', amount: 300, type: 'credit' },
-            { id: 'txn-3', date: new Date().toISOString(), description: 'चामल (5 के.जी)', amount: 900, type: 'debit' },
+            { id: 'txn-1', date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), description: 'चिनी (2 के.जी), तेल (1 लि.)', amount: 360, type: 'debit', items: [] },
+            { id: 'txn-2', date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), description: 'भुक्तानी प्राप्त भयो', amount: 300, type: 'credit', items: [] },
+            { id: 'txn-3', date: new Date().toISOString(), description: 'चामल (5 के.जी)', amount: 900, type: 'debit', items: [] },
         ]
     },
     {
@@ -43,24 +43,24 @@ export const INITIAL_KHATA_CUSTOMERS: KhataCustomer[] = [
         phone: '9808765432',
         address: 'पाटन, ललितपुर',
         transactions: [
-            { id: 'txn-4', date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), description: 'दाल, चियापत्ती, बिस्कुट', amount: 550, type: 'debit' },
+            { id: 'txn-4', date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), description: 'दाल, चियापत्ती, बिस्कुट', amount: 550, type: 'debit', items: [] },
         ]
     }
 ];
 
-export const INITIAL_TRANSACTIONS: Transaction[] = [
-  { id: 1, name: 'रमेश श्रेष्ठ', amount: 850, time: '10 मिनेट अगाडि', paid: true },
-  { id: 2, name: 'सीता कार्की', amount: 1200, time: '25 मिनेट अगाडि', paid: false },
-  { id: 3, name: 'राजेश तामाङ', amount: 650, time: '1 घण्टा अगाडि', paid: true },
-];
+export const INITIAL_TRANSACTIONS: Transaction[] = [];
 
 export const AI_SUGGESTIONS: AiSuggestion[] = [
   { text: 'तिहार आउँदैछ - दीप र मालाको stock बढाउनुहोस्', icon: '🪔' },
   { text: 'यो हप्ता दूधको माग बढेको छ', icon: '🥛' },
 ];
 
+export const CATEGORIES = ['Grocery', 'Beverage', 'Snack', 'Household', 'Personal Care', 'Other'];
+
 const now = new Date();
 const oneMonthAgo = new Date(new Date().setMonth(now.getMonth() - 1));
+const twoMonthsAgo = new Date(new Date().setMonth(now.getMonth() - 2));
+
 
 export const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
     { 
@@ -68,18 +68,22 @@ export const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
         name: 'बासमती चामल (१ के.जी)', 
         stock: 25, 
         unit: 'के.जी', 
-        price: 180, 
+        price: 180,
         lastUpdated: now.toISOString(),
-        priceHistory: [{ price: 175, date: oneMonthAgo.toISOString() }]
+        category: 'Grocery',
+        lowStockThreshold: 10,
+        purchasePriceHistory: [{ price: 165, date: oneMonthAgo.toISOString(), quantity: 50 }]
     },
     { 
         id: 'item-2',
         name: 'सुनको दाल (१ के.जी)', 
-        stock: 15, 
+        stock: 8, 
         unit: 'प्याकेट', 
         price: 210,
         lastUpdated: now.toISOString(),
-        priceHistory: []
+        category: 'Grocery',
+        lowStockThreshold: 10,
+        purchasePriceHistory: [{ price: 190, date: now.toISOString(), quantity: 15 }]
     },
     { 
         id: 'item-3',
@@ -88,7 +92,12 @@ export const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
         unit: 'प्याकेट', 
         price: 90,
         lastUpdated: oneMonthAgo.toISOString(),
-        priceHistory: [{ price: 95, date: new Date(new Date().setMonth(now.getMonth() - 2)).toISOString() }]
+        category: 'Beverage',
+        lowStockThreshold: 20,
+        purchasePriceHistory: [
+            { price: 80, date: twoMonthsAgo.toISOString(), quantity: 50 },
+            { price: 82, date: oneMonthAgo.toISOString(), quantity: 50 }
+        ]
     },
     { 
         id: 'item-4',
@@ -97,7 +106,9 @@ export const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
         unit: 'लि.', 
         price: 250,
         lastUpdated: now.toISOString(),
-        priceHistory: []
+        category: 'Household',
+        lowStockThreshold: 12,
+        purchasePriceHistory: [{ price: 230, date: now.toISOString(), quantity: 40 }]
     },
     { 
         id: 'item-5',
@@ -106,6 +117,8 @@ export const INITIAL_INVENTORY_ITEMS: InventoryItem[] = [
         unit: 'के.जी', 
         price: 110,
         lastUpdated: oneMonthAgo.toISOString(),
-        priceHistory: []
+        category: 'Grocery',
+        lowStockThreshold: 25,
+        purchasePriceHistory: [{ price: 95, date: oneMonthAgo.toISOString(), quantity: 100 }]
     }
 ];

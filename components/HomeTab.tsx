@@ -1,36 +1,69 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Zap, Loader, Trash2 } from 'lucide-react';
 import { getQuickStats } from '../constants';
-import { INITIAL_LOW_STOCK_ITEMS, AI_SUGGESTIONS } from '../constants';
-import type { Transaction, ParsedBill, EditableBillItem } from '../types';
+import { AI_SUGGESTIONS } from '../constants';
+import type { Transaction, ParsedBill, EditableBillItem, InventoryItem } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 import { translations } from '../translations';
+import { generateId, findInventoryItem, formatRelativeTime } from '../utils';
 
+type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
 
 interface HomeTabProps {
   transactions: Transaction[];
-  addTransaction: (name: string, amount: number) => void;
   language: 'ne' | 'en';
   toggleLanguage: () => void;
+  inventory: InventoryItem[];
+  onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
+  onDeleteTransaction: (transactionId: string) => void;
+  lowStockItems: InventoryItem[];
+  onNavigateToInventory: (itemId: string) => void;
+  onQuickAddStock: (item: InventoryItem) => void;
 }
 
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
-const generateId = () => `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+// --- Confirmation Modal ---
+const ConfirmationModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    title: string;
+    message: string;
+    language: 'ne' | 'en';
+}> = ({ isOpen, onClose, onConfirm, title, message, language }) => {
+    if (!isOpen) return null;
+    const t = translations[language];
 
-const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, language, toggleLanguage }) => {
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
+                <h2 className="text-xl font-bold mb-2">{title}</h2>
+                <p className="text-gray-600 mb-6">{message}</p>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200">{t.no}</button>
+                    <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600">{t.yes}, {t.cancel}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+const HomeTab: React.FC<HomeTabProps> = ({ transactions, language, toggleLanguage, inventory, onInitiatePayment, onDeleteTransaction, lowStockItems, onNavigateToInventory, onQuickAddStock }) => {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   
   const [billItems, setBillItems] = useState<EditableBillItem[]>([]);
   const [customerName, setCustomerName] = useState<string>('');
-
+  
+  const [showCancelConfirm, setShowCancelConfirm] = useState<string | null>(null);
 
   const t = translations[language];
   const QUICK_STATS = getQuickStats(language);
-
+  
   if (recognition) {
     recognition.continuous = true;
     recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
@@ -43,13 +76,18 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
     setApiError(null);
     try {
       const result = await parseBillingFromVoice(transcript, language);
-      const newEditableItems: EditableBillItem[] = result.items.map(item => ({
-          id: generateId(),
-          name: item.name || '',
-          quantity: String(item.quantity || 1),
-          unit: item.unit || '',
-          price: String(item.price || 0),
-      }));
+      
+      const newEditableItems: EditableBillItem[] = result.items.map(item => {
+          const inventoryItem = findInventoryItem(item.name, inventory);
+          return {
+              id: generateId(),
+              inventoryId: inventoryItem?.id, // Link to inventory
+              name: inventoryItem?.name || item.name || '',
+              quantity: String(item.quantity || 1),
+              unit: inventoryItem?.unit || item.unit || '',
+              price: String(inventoryItem?.price || item.price || 0), // Use inventory selling price
+          };
+      });
       
       setBillItems(prevItems => [...prevItems, ...newEditableItems]);
 
@@ -63,7 +101,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
     } finally {
       setIsProcessing(false);
     }
-  }, [language, t.guest_customer, customerName]);
+  }, [language, t.guest_customer, customerName, inventory]);
 
   const handleListen = () => {
     if (!recognition) {
@@ -74,9 +112,9 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
       recognition.stop();
       setIsListening(false);
     } else {
-      // Clear previous bill when starting a new session
       setBillItems([]);
       setCustomerName('');
+      setApiError(null);
       recognition.start();
       setIsListening(true);
     }
@@ -106,7 +144,6 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
       setIsListening(false);
     };
 
-    // Cleanup listeners when component unmounts or dependencies change
     return () => {
         if (recognition) {
             recognition.stop();
@@ -117,7 +154,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
     };
   }, [processVoiceCommand]);
   
-  const handleItemChange = (index: number, field: keyof Omit<EditableBillItem, 'id'>, value: string) => {
+  const handleItemChange = (index: number, field: keyof Omit<EditableBillItem, 'id'| 'inventoryId'>, value: string) => {
     const updatedItems = [...billItems];
     updatedItems[index] = { ...updatedItems[index], [field]: value };
     setBillItems(updatedItems);
@@ -143,14 +180,30 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
   }, [billItems]);
 
 
-  const confirmBill = () => {
+  const handleConfirmBill = () => {
     if (billItems.length === 0) return;
-    addTransaction(customerName || t.guest_customer, totalBillAmount);
+    setApiError(null);
+    onInitiatePayment(billItems, totalBillAmount, { type: 'home', customerName: customerName || t.guest_customer });
+    // Clear bill after initiating payment, assuming success
     setBillItems([]);
     setCustomerName('');
   };
+  
+  const handleCancelTransaction = (transactionId: string) => {
+    onDeleteTransaction(transactionId);
+    setShowCancelConfirm(null);
+  };
 
   return (
+    <>
+    <ConfirmationModal
+        isOpen={!!showCancelConfirm}
+        onClose={() => setShowCancelConfirm(null)}
+        onConfirm={() => handleCancelTransaction(showCancelConfirm!)}
+        title={t.confirm_cancel_sale_title}
+        message={t.confirm_cancel_sale_desc}
+        language={language}
+    />
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
@@ -259,9 +312,9 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
                 <span className="text-purple-600 font-extrabold text-xl">रु. {totalBillAmount.toFixed(2)}</span>
             </div>
             <button 
-                onClick={confirmBill}
+                onClick={handleConfirmBill}
                 className="w-full mt-4 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors">
-                {t.confirm_and_pay}
+                {t.confirm_bill}
             </button>
         </div>
       )}
@@ -308,18 +361,25 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
           <button className="text-sm text-purple-600 font-medium">{t.view_all}</button>
         </div>
         <div className="space-y-3">
-          {INITIAL_LOW_STOCK_ITEMS.map((item, idx) => (
-            <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <div>
-                <p className="text-sm font-medium text-gray-800">{item.name}</p>
+          {lowStockItems.length > 0 ? lowStockItems.map((item) => (
+            <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div
+                onClick={() => onNavigateToInventory(item.id)}
+                className="cursor-pointer group"
+              >
+                <p className="text-sm font-medium text-gray-800 group-hover:text-purple-600 transition-colors">{item.name}</p>
                 <p className="text-xs text-red-600">{t.remaining} {item.stock} {item.unit}</p>
               </div>
-              <button className="px-3 py-1 bg-purple-500 text-white text-xs rounded-lg font-medium flex items-center gap-1">
+              <button
+                onClick={() => onQuickAddStock(item)}
+                className="px-3 py-1 bg-purple-500 text-white text-xs rounded-lg font-medium flex items-center gap-1 hover:bg-purple-600"
+              >
                 <Plus className="w-3 h-3" />
-                {t.order}
+                {t.quick_add_stock}
               </button>
             </div>
-          ))}
+          )) : <p className="text-sm text-gray-500 text-center py-4">{t.no_low_stock_items}</p>
+        }
         </div>
       </div>
 
@@ -330,29 +390,28 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, addTransaction, languag
         </div>
         <div className="space-y-1">
           {transactions.map((txn) => (
-            <div key={txn.id} className="flex items-center justify-between p-3 border-b last:border-0">
+            <div key={txn.id} className="group flex items-center justify-between p-3 border-b last:border-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                  {txn.name.charAt(0)}
+                  {txn.customerName.charAt(0)}
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-800">{txn.name}</p>
-                  <p className="text-xs text-gray-500">{txn.time}</p>
+                  <p className="text-sm font-medium text-gray-800">{txn.customerName}</p>
+                  <p className="text-xs text-gray-500">{formatRelativeTime(txn.date, language, t)}</p>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-bold text-gray-800">रु. {txn.amount}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full mt-1 inline-block ${
-                  txn.paid ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                }`}>
-                  {txn.paid ? t.paid : t.due}
-                </span>
+              <div className="flex items-center gap-4">
+                <p className="text-sm font-bold text-gray-800">रु. {txn.amount.toFixed(2)}</p>
+                <button onClick={() => setShowCancelConfirm(txn.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700">
+                    <Trash2 className="w-4 h-4"/>
+                </button>
               </div>
             </div>
           ))}
         </div>
       </div>
     </div>
+    </>
   );
 };
 
