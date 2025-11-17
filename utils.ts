@@ -49,3 +49,32 @@ export const formatDateTime = (isoDate: string, lang: 'ne' | 'en'): string => {
     };
     return date.toLocaleString(lang === 'ne' ? 'ne-NP' : 'en-US', options);
 };
+
+/**
+ * Formats an ISO date string into a relative time string (e.g., "2 days ago").
+ * @param isoDate - The ISO date string to format.
+ * @param t - The translation object for the current language.
+ * @returns A formatted relative time string.
+ */
+export const formatRelativeTime = (isoDate: string, t: any): string => {
+    const date = new Date(isoDate);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    let interval = seconds / 86400; // days
+    if (interval > 7) {
+        return date.toLocaleDateString(t.home_tab === 'गृहपृष्ठ' ? 'ne-NP' : 'en-US', { day: 'numeric', month: 'short' });
+    }
+     if (interval > 1) {
+        return t.days_ago.replace('{days}', Math.floor(interval));
+    }
+    interval = seconds / 3600; // hours
+    if (interval > 1) {
+        return t.hours_ago.replace('{hours}', Math.floor(interval));
+    }
+    interval = seconds / 60; // minutes
+    if (interval > 1) {
+        return t.minutes_ago.replace('{minutes}', Math.floor(interval));
+    }
+    return t.moments_ago;
+};

@@ -9,6 +9,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import QuickAddStockModal from './components/QuickAddStockModal';
 import PaymentSelectionModal from './components/PaymentSelectionModal';
 import CreateKhataModal from './components/CreateKhataModal';
+import { translations } from './translations';
 
 // Custom hook for persisting state to localStorage
 function usePersistentState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
@@ -61,9 +62,8 @@ const App: React.FC = () => {
     setLanguage(prev => (prev === 'ne' ? 'en' : 'ne'));
   };
 
-  const addStock = (items: { inventoryId?: string; quantity: string | number }[]) => {
+  const addStock = (items: { inventoryId?: string; quantity: string | number, name: string }[]) => {
     setInventory(currentInventory => {
-      // FIX: Explicitly type the Map to ensure correct type inference for inventory items.
       const inventoryMap = new Map<string, InventoryItem>(currentInventory.map(i => [i.id, { ...i }]));
       items.forEach(itemToAdd => {
         if (itemToAdd.inventoryId && inventoryMap.has(itemToAdd.inventoryId)) {
@@ -79,7 +79,10 @@ const App: React.FC = () => {
   };
   
   const handleQuickAddStock = (itemId: string, quantity: number) => {
-    addStock([{ inventoryId: itemId, quantity }]);
+    const item = inventory.find(i => i.id === itemId);
+    if(item) {
+        addStock([{ inventoryId: itemId, quantity, name: item.name }]);
+    }
   };
 
   const handleNavigateToInventory = (itemId: string) => {
@@ -167,6 +170,76 @@ const App: React.FC = () => {
       }
       
       return { success: true };
+  };
+
+  const handleAddItemsToKhata = (customerId: string, billItems: EditableBillItem[]): { success: boolean, error?: string } => {
+      const totalAmount = billItems.reduce((sum, item) => sum + (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0), 0);
+      return handleConfirmSale(billItems, '', totalAmount, 'credit', customerId);
+  };
+
+  const handleKhataSettlement = (
+    customerId: string,
+    billItems: EditableBillItem[],
+    amountPaid: number,
+    paymentMethod: 'cash' | 'qr'
+  ): { success: boolean, error?: string } => {
+    const t = translations[language];
+    // 1. Deduct stock for new items
+    const stockDeductionResult = deductStock(billItems);
+    if (!stockDeductionResult.success) {
+      return stockDeductionResult;
+    }
+
+    // 2. Update Khata records
+    setKhataCustomers(prevCustomers => {
+        return prevCustomers.map(cust => {
+            if (cust.id === customerId) {
+                const newTransactions: KhataTransaction[] = [];
+                const billTotal = billItems.reduce((sum, item) => sum + (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0), 0);
+
+                // Add debit for today's bill if it exists
+                if (billItems.length > 0) {
+                    const description = billItems.map(item => `${item.name} (${item.quantity} ${item.unit})`).join(', ');
+                    newTransactions.push({
+                        id: `k-txn-${Date.now()}`,
+                        date: new Date().toISOString(),
+                        description,
+                        amount: billTotal,
+                        type: 'debit',
+                        items: billItems.map(item => ({ inventoryId: item.inventoryId, quantity: item.quantity, name: item.name }))
+                    });
+                }
+                
+                // Add credit for payment received
+                newTransactions.push({
+                    id: `k-txn-${Date.now() + 1}`,
+                    date: new Date().toISOString(),
+                    description: t.payment_received_desc,
+                    amount: amountPaid,
+                    type: 'credit',
+                    items: []
+                });
+
+                return { ...cust, transactions: [...newTransactions, ...cust.transactions] };
+            }
+            return cust;
+        });
+    });
+    
+    // 3. Add to main sales transaction list
+    const customer = khataCustomers.find(c => c.id === customerId);
+    const newSaleTransaction: Transaction = {
+      id: `txn-${Date.now()}`,
+      customerName: customer?.name || 'Unknown Khata',
+      amount: amountPaid,
+      date: new Date().toISOString(),
+      items: billItems.map(item => ({ inventoryId: item.inventoryId, quantity: item.quantity, name: item.name })),
+      paymentMethod: paymentMethod,
+      khataCustomerId: customerId,
+    };
+    setTransactions(prev => [newSaleTransaction, ...prev]);
+
+    return { success: true };
   };
 
   const handleInitiatePayment = (
@@ -285,10 +358,11 @@ const App: React.FC = () => {
                     inventory={inventory}
                     khataCustomers={khataCustomers}
                     transactions={transactions}
-                    onInitiatePayment={handleInitiatePayment}
                     onDeleteTransaction={deleteTransaction}
                     onDeleteKhataTransaction={deleteKhataTransaction}
-                    onAddNewKhataCustomer={addNewKhataCustomer}
+                    onOpenCreateKhata={() => setCreateKhataModalOpen(true)}
+                    onAddItemsToKhata={handleAddItemsToKhata}
+                    onKhataSettlement={handleKhataSettlement}
                 />;
       default: 
         return <PlaceholderTab pageName={TABS.find(t => t.id === activeTab)?.label || ''} language={language} />;

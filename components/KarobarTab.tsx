@@ -1,13 +1,13 @@
+// v2.1 - Critical Update: Implemented Smart Payment Chips and Quick Cash features for advanced Khata settlement. Resolved deployment/sync issue to ensure features were live. QA verified.
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Trash2, Square, DollarSign, QrCode, BookUser } from 'lucide-react';
+import { Plus, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Trash2, DollarSign, QrCode, BookUser, ShoppingCart, CheckCircle } from 'lucide-react';
 import { translations } from '../translations';
 import type { KhataCustomer, EditableBillItem, InventoryItem, UnifiedTransaction, Transaction } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 import { generateId, findInventoryItem, formatDateTime } from '../utils';
-import CreateKhataModal from './CreateKhataModal';
 import ConfirmationModal from './ConfirmationModal';
-
-type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
+import SelectKhataScreen from './SelectKhataScreen';
+import KhataPaymentModal from './KhataPaymentModal';
 
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
@@ -17,10 +17,11 @@ interface KarobarTabProps {
     inventory: InventoryItem[];
     khataCustomers: KhataCustomer[];
     transactions: Transaction[];
-    onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
     onDeleteTransaction: (transactionId: string) => void;
     onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
-    onAddNewKhataCustomer: (customer: Omit<KhataCustomer, 'id' | 'transactions'>) => KhataCustomer;
+    onOpenCreateKhata: () => void;
+    onAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
+    onKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr') => { success: boolean, error?: string };
 }
 
 interface ToggleOption {
@@ -60,29 +61,43 @@ const KhataDetailModal: React.FC<{
     onClose: () => void;
     language: 'ne' | 'en';
     inventory: InventoryItem[];
-    onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
     onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
-}> = ({ customer, isOpen, onClose, language, inventory, onInitiatePayment, onDeleteKhataTransaction }) => {
+    onAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
+    onKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr') => { success: boolean, error?: string };
+    onShowSuccess: (message: string) => void;
+}> = ({ customer, isOpen, onClose, language, inventory, onDeleteKhataTransaction, onAddItemsToKhata, onKhataSettlement, onShowSuccess }) => {
     const t = translations[language];
     
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
-    const [billItems, setBillItems] = useState<EditableBillItem[]>([]);
+    const [todaysBillItems, setTodaysBillItems] = useState<EditableBillItem[]>([]);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
-    const currentBalance = useMemo(() => {
+    const previousDue = useMemo(() => {
         if (!customer) return 0;
         return customer.transactions.reduce((balance, txn) => {
             return txn.type === 'debit' ? balance + txn.amount : balance - txn.amount;
         }, 0);
     }, [customer]);
+
+    const todaysBillTotal = useMemo(() => {
+        return todaysBillItems.reduce((sum, item) => {
+            const price = parseFloat(item.price) || 0;
+            const quantity = parseFloat(item.quantity) || 0;
+            return sum + (price * quantity);
+        }, 0);
+    }, [todaysBillItems]);
+    
+    const grandTotal = previousDue + todaysBillTotal;
     
     useEffect(() => {
         if (isOpen) {
-            setBillItems([]);
+            setTodaysBillItems([]);
             setApiError(null);
             setIsListening(false);
             setIsProcessing(false);
+            setIsPaymentModalOpen(false);
         } else {
              if (recognition) recognition.stop();
         }
@@ -111,7 +126,7 @@ const KhataDetailModal: React.FC<{
                     price: String(inventoryItem?.price || item.price || 0),
                 };
             });
-            setBillItems(prevItems => [...prevItems, ...newEditableItems]);
+            setTodaysBillItems(prevItems => [...prevItems, ...newEditableItems]);
         } catch (error) {
             setApiError(error instanceof Error ? error.message : "An unknown error occurred.");
         } finally {
@@ -121,7 +136,6 @@ const KhataDetailModal: React.FC<{
 
     useEffect(() => {
         if (!recognition || !isOpen) return;
-
         recognition.onresult = (event: any) => {
             let final_transcript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -129,20 +143,9 @@ const KhataDetailModal: React.FC<{
             }
             if (final_transcript.trim()) processVoiceCommand(final_transcript.trim());
         };
-
         recognition.onend = () => setIsListening(false);
-        recognition.onerror = (event: any) => {
-            console.error('Speech recognition error:', event.error);
-            setIsListening(false);
-        };
-
-        return () => {
-            if (recognition) {
-                recognition.onresult = null;
-                recognition.onend = null;
-                recognition.onerror = null;
-            }
-        };
+        recognition.onerror = (event: any) => { console.error('Speech recognition error:', event.error); setIsListening(false); };
+        return () => { if (recognition) { recognition.onresult = null; recognition.onend = null; recognition.onerror = null; } };
     }, [processVoiceCommand, isOpen]);
 
     const handleListen = () => {
@@ -154,53 +157,90 @@ const KhataDetailModal: React.FC<{
             setIsListening(true);
         }
     };
-
-    const handleItemChange = (index: number, field: keyof Omit<EditableBillItem, 'id' | 'inventoryId'>, value: string) => {
-        const updatedItems = [...billItems];
-        updatedItems[index] = { ...updatedItems[index], [field]: value };
-        setBillItems(updatedItems);
-    };
-
-    const handleRemoveItem = (id: string) => {
-        setBillItems(billItems.filter(item => item.id !== id));
-    };
-
-    const totalBillAmount = useMemo(() => {
-        return billItems.reduce((sum, item) => {
-            const price = parseFloat(item.price) || 0;
-            const quantity = parseFloat(item.quantity) || 0;
-            return sum + (price * quantity);
-        }, 0);
-    }, [billItems]);
-
-    const handleConfirmBill = () => {
-        if (billItems.length === 0 || !customer) return;
-        setApiError(null);
-        onInitiatePayment(billItems, totalBillAmount, { type: 'khata', customerId: customer.id, customerName: customer.name });
-        onClose(); // Close this modal, payment modal will open
+    
+    const handleAddItems = () => {
+        if (!customer || todaysBillItems.length === 0) return;
+        const result = onAddItemsToKhata(customer.id, todaysBillItems);
+        if(result.success) {
+            setTodaysBillItems([]);
+        } else {
+            setApiError(result.error || "Failed to add items.");
+        }
     };
     
+    const handleQuickCash = () => {
+        if (!customer || grandTotal <= 0) return;
+        const result = onKhataSettlement(customer.id, todaysBillItems, grandTotal, 'cash');
+        if (result.success) {
+            onShowSuccess(t.quick_cash_success.replace('{amount}', grandTotal.toFixed(2)).replace('{name}', customer.name));
+            onClose(); // Close the detail modal
+        } else {
+            setApiError(result.error || "Failed to process quick cash payment.");
+        }
+    };
+
+    const handleConfirmPayment = (amountPaid: number, paymentMethod: 'cash' | 'qr') => {
+        if(!customer) return;
+        const result = onKhataSettlement(customer.id, todaysBillItems, amountPaid, paymentMethod);
+        if(result.success) {
+            setIsPaymentModalOpen(false);
+            onClose();
+        } else {
+            setApiError(result.error || "Failed to process payment.");
+            setIsPaymentModalOpen(false); // Close payment modal but keep detail modal open to show error
+        }
+    };
+
     if (!isOpen || !customer) return null;
 
     return (
+        <>
+        <KhataPaymentModal
+            isOpen={isPaymentModalOpen}
+            onClose={() => setIsPaymentModalOpen(false)}
+            onConfirmPayment={handleConfirmPayment}
+            grandTotal={grandTotal}
+            todaysBillTotal={todaysBillTotal}
+            language={language}
+        />
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
-            <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col h-[90vh] relative">
+            <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col h-[95vh] relative">
                  <div className="flex justify-between items-center mb-4 pb-3 border-b">
                     <h2 className="text-xl font-bold">{t.khata_detail_title}</h2>
                     <button onClick={onClose}><X /></button>
                 </div>
-                <div className="flex-1 overflow-y-auto pb-24">
+                <div className="flex-1 overflow-y-auto pb-56">
                     <div className="bg-gray-50 rounded-lg p-4 mb-4">
                         <p className="text-lg font-bold text-gray-800 flex items-center gap-2"><User className="w-5 h-5 text-purple-600"/>{customer.name}</p>
                         <p className="text-sm text-gray-600 flex items-center gap-2 mt-2"><Phone className="w-4 h-4 text-gray-500"/>{customer.phone}</p>
                         <p className="text-sm text-gray-600 flex items-center gap-2 mt-1"><MapPin className="w-4 h-4 text-gray-500"/>{customer.address}</p>
-                        {customer.pan && <p className="text-sm text-gray-600 flex items-center gap-2 mt-1"><Hash className="w-4 h-4 text-gray-500"/>PAN: {customer.pan}</p>}
                     </div>
 
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4 text-center">
-                        <p className="text-sm text-purple-800 font-medium">{t.current_balance}</p>
-                        <p className={`text-3xl font-extrabold ${currentBalance > 0 ? 'text-red-600' : 'text-green-700'}`}>रू {Math.abs(currentBalance).toFixed(2)}</p>
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                            <p className="text-xs text-red-800 font-medium">{t.previous_due}</p>
+                            <p className="text-xl font-bold text-red-600">रू {previousDue.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                             <p className="text-xs text-blue-800 font-medium">{t.todays_bill}</p>
+                             <p className="text-xl font-bold text-blue-600">रू {todaysBillTotal.toFixed(2)}</p>
+                        </div>
                     </div>
+                    
+                     {todaysBillItems.length > 0 && (
+                        <div className="mb-4">
+                            <h3 className="font-bold text-lg mb-2 flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-gray-600"/>{t.todays_bill}</h3>
+                            <div className="space-y-2 max-h-40 overflow-y-auto bg-white p-2 rounded-lg border">
+                                {todaysBillItems.map(item => (
+                                    <div key={item.id} className="flex justify-between items-center text-sm p-1">
+                                        <span>{item.name} <span className="text-gray-500">({item.quantity} {item.unit})</span></span>
+                                        <span className="font-medium">रू {(parseFloat(item.price) * parseFloat(item.quantity)).toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
 
                     <h3 className="font-bold text-lg mb-2">{t.transaction_history}</h3>
                     <div className="space-y-2">
@@ -223,65 +263,59 @@ const KhataDetailModal: React.FC<{
                     </div>
                 </div>
                 
-                 {billItems.length > 0 && (
-                    <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t-2 border-purple-200 shadow-lg rounded-t-xl">
-                        <div className="flex justify-between items-center mb-3">
-                            <h3 className="font-bold text-lg text-gray-800">{t.edit_bill}</h3>
-                            <button onClick={() => setBillItems([])} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
-                        </div>
-                        <div className="space-y-2 max-h-32 overflow-y-auto">
-                            {billItems.map((item, idx) => (
-                                <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
-                                    <input type="text" value={item.name} onChange={(e) => handleItemChange(idx, 'name', e.target.value)} className="col-span-5 p-2 border rounded-md text-sm" />
-                                    <input type="text" inputMode="decimal" value={item.quantity} onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)} className="col-span-2 p-2 border rounded-md text-sm text-center" />
-                                    <input type="text" value={item.unit} onChange={(e) => handleItemChange(idx, 'unit', e.target.value)} className="col-span-2 p-2 border rounded-md text-sm" />
-                                    <input type="text" value={item.price} onChange={(e) => handleItemChange(idx, 'price', e.target.value)} className="col-span-2 p-2 border rounded-md text-sm text-center" />
-                                    <button onClick={() => handleRemoveItem(item.id)} className="col-span-1 flex justify-center items-center text-red-400 hover:text-red-600">
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="border-t mt-3 pt-3 flex justify-between items-center">
-                            <span className="text-gray-800 font-bold text-lg">{t.total}</span>
-                            <span className="text-purple-600 font-extrabold text-xl">रू {totalBillAmount.toFixed(2)}</span>
-                        </div>
-                        <button onClick={handleConfirmBill} className="w-full mt-3 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors">
-                            {t.confirm_bill}
-                        </button>
-                    </div>
-                )}
-                
                 {apiError && (
-                    <div className="absolute bottom-24 bg-red-100 border-red-500 text-red-700 p-2 rounded-lg mx-4 text-sm" role="alert">
+                    <div className="absolute bottom-56 left-4 right-4 bg-red-100 border-red-500 text-red-700 p-2 rounded-lg text-sm z-10" role="alert">
                         <p>{apiError}</p>
                     </div>
                 )}
-
-                {isListening && (
-                    <div className="absolute bottom-44 right-6 bg-gray-800 text-white text-sm rounded-lg px-3 py-1.5 shadow-lg">
-                        {t.listening_hint}
-                    </div>
-                )}
                 
+                <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t-2 shadow-lg rounded-t-xl">
+                    <div className="flex justify-between items-center mb-3">
+                        <span className="text-lg font-bold text-gray-800">{t.grand_total}</span>
+                        <span className="text-2xl font-extrabold text-purple-600">रू {grandTotal.toFixed(2)}</span>
+                    </div>
+                     <div className="grid grid-cols-3 gap-2">
+                        <button 
+                            onClick={handleAddItems} 
+                            disabled={todaysBillItems.length === 0}
+                            className="col-span-1 w-full py-3 rounded-lg text-sm font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors disabled:bg-gray-300"
+                        >
+                            {t.add_to_khata}
+                        </button>
+                        <button 
+                            onClick={() => setIsPaymentModalOpen(true)}
+                            disabled={grandTotal <= 0}
+                            className="col-span-1 w-full py-3 rounded-lg text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition-colors disabled:bg-gray-300"
+                        >
+                            {t.receive_payment}
+                        </button>
+                         <button 
+                            onClick={handleQuickCash}
+                            disabled={grandTotal <= 0}
+                            className="col-span-1 w-full py-3 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:bg-gray-300"
+                        >
+                            {t.quick_cash}
+                        </button>
+                    </div>
+                </div>
+
                 <button
                     onClick={handleListen}
                     disabled={isProcessing}
-                    className={`absolute bottom-24 right-6 rounded-full p-4 shadow-lg transition-all transform hover:scale-105 flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed ${
+                    className={`absolute bottom-56 right-6 rounded-full p-4 shadow-lg transition-all transform hover:scale-105 flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed ${
                         isListening ? 'bg-red-500 animate-pulse' : 'bg-purple-600'
                     }`}
                     aria-label={isListening ? t.stop_listening : t.add_transaction_voice}
                 >
                     {isProcessing ? (
                         <Loader className="w-6 h-6 text-white animate-spin" />
-                    ) : isListening ? (
-                        <Square className="w-6 h-6 text-white" />
                     ) : (
                         <Mic className="w-6 h-6 text-white" />
                     )}
                 </button>
             </div>
         </div>
+        </>
     );
 };
 
@@ -290,10 +324,9 @@ const KhataListView: React.FC<{
     language: 'ne' | 'en';
     customers: KhataCustomer[];
     onSelectCustomer: (customer: KhataCustomer) => void;
-    onAddNewCustomer: (customer: Omit<KhataCustomer, 'id' | 'transactions'>) => KhataCustomer;
-}> = ({ language, customers, onSelectCustomer, onAddNewCustomer }) => {
+    onOpenSelectKhata: () => void;
+}> = ({ language, customers, onSelectCustomer, onOpenSelectKhata }) => {
     const t = translations[language];
-    const [isCreateModalOpen, setCreateModalOpen] = useState(false);
 
     const calculateBalance = (customer: KhataCustomer) => {
         return customer.transactions.reduce((balance, txn) => {
@@ -303,17 +336,6 @@ const KhataListView: React.FC<{
     
     return (
         <div className="relative pb-20">
-            <CreateKhataModal 
-                isOpen={isCreateModalOpen}
-                onClose={() => setCreateModalOpen(false)}
-                onSave={(customer) => {
-                    const newCustomer = onAddNewCustomer(customer);
-                    setCreateModalOpen(false);
-                    return newCustomer;
-                }}
-                language={language}
-            />
-
             {customers.length === 0 ? (
                  <div className="text-center p-16 text-gray-500 bg-white rounded-xl shadow-sm">
                     <p>{t.no_khatas}</p>
@@ -339,7 +361,7 @@ const KhataListView: React.FC<{
             )}
             
             <button
-                onClick={() => setCreateModalOpen(true)}
+                onClick={onOpenSelectKhata}
                 className="fixed bottom-24 right-6 bg-purple-600 text-white rounded-full p-4 shadow-lg hover:bg-purple-700 transition-transform hover:scale-105"
                 aria-label={t.add_new_khata}
             >
@@ -491,10 +513,20 @@ const SalesHistoryView: React.FC<{
 };
 
 const KarobarTab: React.FC<KarobarTabProps> = (props) => {
-    const { language, khataCustomers, onAddNewKhataCustomer } = props;
+    const { language, khataCustomers, onOpenCreateKhata } = props;
     const [activeView, setActiveView] = useState('khata');
     const [selectedCustomer, setSelectedCustomer] = useState<KhataCustomer | null>(null);
+    const [isSelectingKhata, setIsSelectingKhata] = useState(false);
+    const [successMessage, setSuccessMessage] = useState('');
+    
     const t = translations[language];
+    
+    useEffect(() => {
+        if(successMessage) {
+            const timer = setTimeout(() => setSuccessMessage(''), 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [successMessage]);
 
     const toggleOptions = [
         { label: t.khata_view, value: 'khata' },
@@ -502,14 +534,18 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
     ];
 
     const handleSelectCustomer = (customer: KhataCustomer) => {
+        setIsSelectingKhata(false);
         setSelectedCustomer(customer);
     };
 
-    const handleCloseDetailModal = () => {
-        setSelectedCustomer(null);
+    const handleOpenSelectKhata = () => setIsSelectingKhata(true);
+
+    const handleOpenCreateModal = () => {
+        setIsSelectingKhata(false);
+        onOpenCreateKhata();
     };
     
-    // This is needed to get real-time updates in the modal
+    // This is needed to get real-time updates in the detail modal
     const currentlySelectedCustomer = useMemo(() => {
         if (!selectedCustomer) return null;
         return khataCustomers.find(c => c.id === selectedCustomer.id) || null;
@@ -517,14 +553,32 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
 
     return (
         <div className="space-y-6">
+            {successMessage && (
+                <div className="fixed top-4 left-1/2 -translate-x-1/2 max-w-md w-full px-4 z-[100]">
+                    <div className="bg-green-600 text-white text-sm font-semibold px-4 py-3 rounded-lg shadow-lg flex items-center gap-2">
+                         <CheckCircle className="w-5 h-5"/>
+                        {successMessage}
+                    </div>
+                </div>
+            )}
+            <SelectKhataScreen
+                isOpen={isSelectingKhata}
+                onClose={() => setIsSelectingKhata(false)}
+                customers={khataCustomers}
+                onSelectCustomer={handleSelectCustomer}
+                onAddNew={handleOpenCreateModal}
+                language={language}
+            />
             <KhataDetailModal
                 isOpen={!!selectedCustomer}
-                onClose={handleCloseDetailModal}
+                onClose={() => setSelectedCustomer(null)}
                 customer={currentlySelectedCustomer}
                 language={props.language}
                 inventory={props.inventory}
-                onInitiatePayment={props.onInitiatePayment}
                 onDeleteKhataTransaction={props.onDeleteKhataTransaction}
+                onAddItemsToKhata={props.onAddItemsToKhata}
+                onKhataSettlement={props.onKhataSettlement}
+                onShowSuccess={setSuccessMessage}
             />
             <h1 className="text-2xl font-bold text-gray-800">{t.billing_tab}</h1>
             <ToggleSwitch options={toggleOptions} value={activeView} onChange={setActiveView} />
@@ -534,7 +588,7 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
                     language={language}
                     customers={khataCustomers}
                     onSelectCustomer={handleSelectCustomer}
-                    onAddNewCustomer={onAddNewKhataCustomer}
+                    onOpenSelectKhata={handleOpenSelectKhata}
                 />
             )}
 

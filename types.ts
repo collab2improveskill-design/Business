@@ -28,6 +28,7 @@ export interface Transaction {
   date: string; // ISO Date string
   items: Pick<EditableBillItem, 'inventoryId' | 'quantity' | 'name'>[];
   paymentMethod: 'cash' | 'qr';
+  khataCustomerId?: string; // Link to the khata customer if it's a settlement payment
 }
 
 export interface AiSuggestion {
@@ -102,7 +103,7 @@ export interface ParsedKhataTransaction {
 // Shared type for bill editing UI
 export interface EditableBillItem {
   id: string; // Temporary UI ID
-  inventoryId?: string; // ID of the item in the master inventory, if matched
+  inventoryId?: string; // ID of the master inventory, if matched
   name: string;
   quantity: string;
   unit: string;
