@@ -1,6 +1,4 @@
-
 import type { InventoryItem } from './types';
-import { translations } from './translations';
 
 /**
  * Generates a unique ID string for list items.
@@ -34,27 +32,20 @@ export const findInventoryItem = (name: string, inventory: InventoryItem[]): Inv
     return undefined;
 };
 
-
 /**
- * Formats an ISO date string into a relative time string (e.g., "5 min ago").
+ * Formats an ISO date string into a readable date and time string (e.g., "Jun 20, 10:45 AM").
  * @param isoDate - The ISO date string to format.
  * @param lang - The current language ('ne' | 'en').
- * @param t - The translation object for the current language.
- * @returns A formatted relative time string.
+ * @returns A formatted date-time string.
  */
-export const formatRelativeTime = (isoDate: string, lang: 'ne' | 'en', t: typeof translations.ne): string => {
-    const now = new Date();
-    const saleDate = new Date(isoDate);
-    const diffInSeconds = Math.floor((now.getTime() - saleDate.getTime()) / 1000);
-
-    if (diffInSeconds < 60) return t.moments_ago;
-    
-    const diffInMinutes = Math.floor(diffInSeconds / 60);
-    if (diffInMinutes < 60) return t.minutes_ago.replace('{minutes}', diffInMinutes.toString());
-
-    const diffInHours = Math.floor(diffInMinutes / 60);
-    if (diffInHours < 24) return t.hours_ago.replace('{hours}', diffInHours.toString());
-    
-    const diffInDays = Math.floor(diffInHours / 24);
-    return t.days_ago.replace('{days}', diffInDays.toString());
+export const formatDateTime = (isoDate: string, lang: 'ne' | 'en'): string => {
+    const date = new Date(isoDate);
+    const options: Intl.DateTimeFormatOptions = {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    };
+    return date.toLocaleString(lang === 'ne' ? 'ne-NP' : 'en-US', options);
 };

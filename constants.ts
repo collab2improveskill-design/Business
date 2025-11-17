@@ -11,9 +11,9 @@ export const getTabs = (lang: 'ne' | 'en'): Tab[] => [
 ];
 
 export const getQuickStats = (lang: 'ne' | 'en'): QuickStat[] => [
-  { label: translations[lang].todays_sales, value: 'रु. 12,450', change: '+8%', color: 'bg-green-500', icon: DollarSign },
-  { label: translations[lang].stock_value, value: 'रु. 2,45,000', change: '', color: 'bg-blue-500', icon: Archive },
-  { label: translations[lang].due_amount, value: 'रु. 15,200', change: `5 ${translations[lang].people}`, color: 'bg-orange-500', icon: UserCheck },
+  { label: translations[lang].todays_sales, value: 'रू 12,450', change: '+8%', color: 'bg-green-500', icon: DollarSign },
+  { label: translations[lang].stock_value, value: 'रू 2,45,000', change: '', color: 'bg-blue-500', icon: Archive },
+  { label: translations[lang].due_amount, value: 'रू 15,200', change: `5 ${translations[lang].people}`, color: 'bg-orange-500', icon: UserCheck },
   { label: translations[lang].low_stock, value: `12 ${translations[lang].items}`, change: '', color: 'bg-red-500', icon: AlertTriangle },
 ];
 

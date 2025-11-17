@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, AlertCircle, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Trash2, Square } from 'lucide-react';
+import { Plus, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Trash2, Square, DollarSign, QrCode, BookUser } from 'lucide-react';
 import { translations } from '../translations';
-import type { KhataCustomer, EditableBillItem, InventoryItem } from '../types';
+import type { KhataCustomer, EditableBillItem, InventoryItem, UnifiedTransaction, Transaction } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
-import { generateId, findInventoryItem } from '../utils';
+import { generateId, findInventoryItem, formatDateTime } from '../utils';
 import CreateKhataModal from './CreateKhataModal';
+import ConfirmationModal from './ConfirmationModal';
 
 type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
 
@@ -15,12 +16,11 @@ interface KarobarTabProps {
     language: 'ne' | 'en';
     inventory: InventoryItem[];
     khataCustomers: KhataCustomer[];
+    transactions: Transaction[];
     onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
+    onDeleteTransaction: (transactionId: string) => void;
     onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
     onAddNewKhataCustomer: (customer: Omit<KhataCustomer, 'id' | 'transactions'>) => KhataCustomer;
-    lowStockItems: InventoryItem[];
-    onNavigateToInventory: (itemId: string) => void;
-    onQuickAddStock: (item: InventoryItem) => void;
 }
 
 interface ToggleOption {
@@ -182,13 +182,6 @@ const KhataDetailModal: React.FC<{
     
     if (!isOpen || !customer) return null;
 
-    const formatDateTime = (dateString: string) => {
-        const options: Intl.DateTimeFormatOptions = {
-            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
-        };
-        return new Date(dateString).toLocaleString(language === 'ne' ? 'ne-NP' : 'en-US', options);
-    };
-
     return (
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
             <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col h-[90vh] relative">
@@ -206,7 +199,7 @@ const KhataDetailModal: React.FC<{
 
                     <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4 text-center">
                         <p className="text-sm text-purple-800 font-medium">{t.current_balance}</p>
-                        <p className={`text-3xl font-extrabold ${currentBalance > 0 ? 'text-red-600' : 'text-green-700'}`}>रु. {Math.abs(currentBalance).toFixed(2)}</p>
+                        <p className={`text-3xl font-extrabold ${currentBalance > 0 ? 'text-red-600' : 'text-green-700'}`}>रू {Math.abs(currentBalance).toFixed(2)}</p>
                     </div>
 
                     <h3 className="font-bold text-lg mb-2">{t.transaction_history}</h3>
@@ -215,11 +208,11 @@ const KhataDetailModal: React.FC<{
                              <div key={txn.id} className={`group p-3 rounded-lg flex justify-between items-center ${txn.type === 'debit' ? 'bg-red-50' : 'bg-green-50'}`}>
                                 <div>
                                     <p className="font-medium text-gray-800 text-sm">{txn.description}</p>
-                                    <p className="text-xs text-gray-500">{formatDateTime(txn.date)}</p>
+                                    <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <p className={`font-bold text-sm ${txn.type === 'debit' ? 'text-red-600' : 'text-green-700'}`}>
-                                        {txn.type === 'debit' ? '+' : '-'} रु. {txn.amount.toFixed(2)}
+                                        {txn.type === 'debit' ? '+' : '-'} रू {txn.amount.toFixed(2)}
                                     </p>
                                     <button onClick={() => onDeleteKhataTransaction(customer.id, txn.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity">
                                         <Trash2 className="w-4 h-4" />
@@ -251,7 +244,7 @@ const KhataDetailModal: React.FC<{
                         </div>
                         <div className="border-t mt-3 pt-3 flex justify-between items-center">
                             <span className="text-gray-800 font-bold text-lg">{t.total}</span>
-                            <span className="text-purple-600 font-extrabold text-xl">रु. {totalBillAmount.toFixed(2)}</span>
+                            <span className="text-purple-600 font-extrabold text-xl">रू {totalBillAmount.toFixed(2)}</span>
                         </div>
                         <button onClick={handleConfirmBill} className="w-full mt-3 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors">
                             {t.confirm_bill}
@@ -336,7 +329,7 @@ const KhataListView: React.FC<{
                                     <p className="text-sm text-gray-500">{customer.address}</p>
                                 </div>
                                 <div className="text-right">
-                                    <p className={`font-bold ${balance > 0 ? 'text-red-600' : 'text-green-700'}`}>रु. {balance.toFixed(2)}</p>
+                                    <p className={`font-bold ${balance > 0 ? 'text-red-600' : 'text-green-700'}`}>रू {balance.toFixed(2)}</p>
                                     <p className="text-xs text-gray-500">{balance > 0 ? t.due : t.paid}</p>
                                 </div>
                             </div>
@@ -356,58 +349,156 @@ const KhataListView: React.FC<{
     );
 };
 
-// --- LowStockView ---
-const LowStockView: React.FC<{
+// --- SalesHistoryView ---
+const SalesHistoryView: React.FC<{
     language: 'ne' | 'en';
-    lowStockItems: InventoryItem[];
-    onNavigateToInventory: (itemId: string) => void;
-    onQuickAddStock: (item: InventoryItem) => void;
-}> = ({ language, lowStockItems, onNavigateToInventory, onQuickAddStock }) => {
+    transactions: Transaction[];
+    khataCustomers: KhataCustomer[];
+    onDeleteTransaction: (transactionId: string) => void;
+    onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
+}> = ({ language, transactions, khataCustomers, onDeleteTransaction, onDeleteKhataTransaction }) => {
     const t = translations[language];
+    const [filter, setFilter] = useState<'all' | 'cash' | 'qr' | 'credit'>('all');
+    const [confirmDelete, setConfirmDelete] = useState<UnifiedTransaction | null>(null);
+
+    const unifiedTransactions = useMemo((): UnifiedTransaction[] => {
+        const cashAndQrSales: UnifiedTransaction[] = transactions.map(txn => ({
+            id: txn.id,
+            type: txn.paymentMethod,
+            customerName: txn.customerName,
+            amount: txn.amount,
+            date: txn.date,
+            description: txn.items.map(i => i.name).join(', '),
+            originalType: 'transaction'
+        }));
+
+        const creditSales: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
+            cust.transactions
+                .filter(txn => txn.type === 'debit')
+                .map(txn => ({
+                    id: txn.id,
+                    type: 'credit',
+                    customerName: cust.name,
+                    amount: txn.amount,
+                    date: txn.date,
+                    description: txn.description,
+                    originalType: 'khata',
+                    customerId: cust.id
+                }))
+        );
+
+        return [...cashAndQrSales, ...creditSales].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [transactions, khataCustomers]);
+
+    const filteredTransactions = useMemo(() => {
+        if (filter === 'all') return unifiedTransactions;
+        return unifiedTransactions.filter(txn => txn.type === filter);
+    }, [filter, unifiedTransactions]);
+
+    const handleDelete = () => {
+        if (!confirmDelete) return;
+        if (confirmDelete.originalType === 'transaction') {
+            onDeleteTransaction(confirmDelete.id);
+        } else if (confirmDelete.originalType === 'khata' && confirmDelete.customerId) {
+            onDeleteKhataTransaction(confirmDelete.customerId, confirmDelete.id);
+        }
+        setConfirmDelete(null);
+    };
+
+    const paymentIcons: { [key in 'cash' | 'qr' | 'credit']: React.ReactElement } = useMemo(() => ({
+        cash: <DollarSign className="w-5 h-5 text-green-600" />,
+        qr: <QrCode className="w-5 h-5 text-sky-600" />,
+        credit: <BookUser className="w-5 h-5 text-red-600" />,
+    }), []);
+    
+    const paymentStatusInfo = useMemo(() => ({
+        cash: { text: t.paid, color: 'text-green-600', icon: <DollarSign className="w-3 h-3" /> },
+        qr: { text: t.online, color: 'text-sky-600', icon: <QrCode className="w-3 h-3" /> },
+        credit: { text: t.due, color: 'text-red-600', icon: <BookUser className="w-3 h-3" /> },
+    }), [t]);
+
+
+    const filterButtons = [
+        { label: t.filter_all, value: 'all' },
+        { label: t.filter_cash, value: 'cash' },
+        { label: t.filter_qr, value: 'qr' },
+        { label: t.filter_credit, value: 'credit' },
+    ];
 
     return (
-        <div className="bg-white rounded-xl p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                    <AlertCircle className="w-5 h-5 text-red-500" />
-                    {t.low_stock_alert}
-                </h3>
+        <div className="space-y-4">
+            <ConfirmationModal
+                isOpen={!!confirmDelete}
+                onClose={() => setConfirmDelete(null)}
+                onConfirm={handleDelete}
+                title={t.confirm_delete_txn_title}
+                message={t.confirm_delete_txn_desc}
+                language={language}
+            />
+            <div className="flex justify-around bg-gray-100 rounded-lg p-1">
+                {filterButtons.map(btn => (
+                    <button
+                        key={btn.value}
+                        onClick={() => setFilter(btn.value as any)}
+                        className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${
+                            filter === btn.value
+                                ? 'bg-purple-600 text-white shadow'
+                                : 'text-gray-600 hover:bg-gray-200'
+                        }`}
+                    >
+                        {btn.label}
+                    </button>
+                ))}
             </div>
-            <div className="space-y-3">
-                {lowStockItems.length > 0 ? lowStockItems.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div 
-                            onClick={() => onNavigateToInventory(item.id)}
-                            className="cursor-pointer group"
-                        >
-                            <p className="text-sm font-medium text-gray-800 group-hover:text-purple-600 transition-colors">{item.name}</p>
-                            <p className="text-xs text-red-600">{t.remaining} {item.stock} {item.unit}</p>
-                        </div>
-                        <button 
-                            onClick={() => onQuickAddStock(item)}
-                            className="px-3 py-1 bg-purple-500 text-white text-xs rounded-lg font-medium flex items-center gap-1 hover:bg-purple-600"
-                        >
-                            <Plus className="w-3 h-3" />
-                            {t.quick_add_stock}
-                        </button>
-                    </div>
-                )) : (
-                    <p className="text-sm text-gray-500 text-center py-4">{t.no_low_stock_items}</p>
-                )}
-            </div>
+            {filteredTransactions.length === 0 ? (
+                <div className="text-center p-10 text-gray-500 bg-white rounded-xl shadow-sm">
+                    <p>{t.no_sales_history}</p>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {filteredTransactions.map(txn => {
+                        const status = paymentStatusInfo[txn.type];
+                        return (
+                            <div key={`${txn.originalType}-${txn.id}`} className="group bg-white rounded-xl p-3 shadow-sm flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                                        {paymentIcons[txn.type]}
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm text-gray-800">{txn.customerName}</p>
+                                        <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                     <div className="text-right">
+                                        <p className="font-bold text-gray-800">रू {txn.amount.toFixed(2)}</p>
+                                        <div className={`flex items-center justify-end gap-1 mt-1 ${status.color}`}>
+                                            {status.icon}
+                                            <span className="text-xs font-semibold">{status.text}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setConfirmDelete(txn)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 self-start pt-1">
+                                        <Trash2 className="w-4 h-4"/>
+                                    </button>
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
         </div>
     );
 };
 
-
-const KarobarTab: React.FC<KarobarTabProps> = ({ language, inventory, khataCustomers, onInitiatePayment, onDeleteKhataTransaction, onAddNewKhataCustomer, lowStockItems, onNavigateToInventory, onQuickAddStock }) => {
+const KarobarTab: React.FC<KarobarTabProps> = (props) => {
+    const { language, khataCustomers, onAddNewKhataCustomer } = props;
     const [activeView, setActiveView] = useState('khata');
     const [selectedCustomer, setSelectedCustomer] = useState<KhataCustomer | null>(null);
     const t = translations[language];
 
     const toggleOptions = [
         { label: t.khata_view, value: 'khata' },
-        { label: t.low_stocks_view, value: 'low_stocks' }
+        { label: t.sales_history_view, value: 'sales_history' }
     ];
 
     const handleSelectCustomer = (customer: KhataCustomer) => {
@@ -430,10 +521,10 @@ const KarobarTab: React.FC<KarobarTabProps> = ({ language, inventory, khataCusto
                 isOpen={!!selectedCustomer}
                 onClose={handleCloseDetailModal}
                 customer={currentlySelectedCustomer}
-                language={language}
-                inventory={inventory}
-                onInitiatePayment={onInitiatePayment}
-                onDeleteKhataTransaction={onDeleteKhataTransaction}
+                language={props.language}
+                inventory={props.inventory}
+                onInitiatePayment={props.onInitiatePayment}
+                onDeleteKhataTransaction={props.onDeleteKhataTransaction}
             />
             <h1 className="text-2xl font-bold text-gray-800">{t.billing_tab}</h1>
             <ToggleSwitch options={toggleOptions} value={activeView} onChange={setActiveView} />
@@ -447,13 +538,8 @@ const KarobarTab: React.FC<KarobarTabProps> = ({ language, inventory, khataCusto
                 />
             )}
 
-            {activeView === 'low_stocks' && (
-                 <LowStockView
-                    language={language}
-                    lowStockItems={lowStockItems}
-                    onNavigateToInventory={onNavigateToInventory}
-                    onQuickAddStock={onQuickAddStock}
-                 />
+            {activeView === 'sales_history' && (
+                 <SalesHistoryView {...props} />
             )}
         </div>
     );

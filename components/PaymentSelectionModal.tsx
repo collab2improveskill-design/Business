@@ -90,7 +90,7 @@ const PaymentSelectionModal: React.FC<PaymentSelectionModalProps> = ({
                 {!showCustomerSelection && (
                     <>
                         <p className="text-center text-gray-500 mb-4">{t.total}</p>
-                        <p className="text-center text-4xl font-extrabold text-purple-600 mb-6">रु. {billTotal.toFixed(2)}</p>
+                        <p className="text-center text-4xl font-extrabold text-purple-600 mb-6">रू {billTotal.toFixed(2)}</p>
                         <div className="space-y-3">
                             <button onClick={() => handleFinalize('cash')} className="w-full flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors">
                                 <DollarSign className="w-8 h-8 text-green-600" />

@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Zap, Loader, Trash2 } from 'lucide-react';
+import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Zap, Loader, Trash2, DollarSign, QrCode, BookUser } from 'lucide-react';
 import { getQuickStats } from '../constants';
 import { AI_SUGGESTIONS } from '../constants';
-import type { Transaction, ParsedBill, EditableBillItem, InventoryItem } from '../types';
+import type { UnifiedTransaction, ParsedBill, EditableBillItem, InventoryItem } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 import { translations } from '../translations';
-import { generateId, findInventoryItem, formatRelativeTime } from '../utils';
+import { generateId, findInventoryItem, formatDateTime } from '../utils';
+import ConfirmationModal from './ConfirmationModal';
 
 type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
 
 interface HomeTabProps {
-  transactions: Transaction[];
+  recentSales: UnifiedTransaction[];
   language: 'ne' | 'en';
   toggleLanguage: () => void;
   inventory: InventoryItem[];
   onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
-  onDeleteTransaction: (transactionId: string) => void;
+  onDeleteSale: (transaction: UnifiedTransaction) => void;
   lowStockItems: InventoryItem[];
   onNavigateToInventory: (itemId: string) => void;
   onQuickAddStock: (item: InventoryItem) => void;
@@ -24,34 +25,7 @@ interface HomeTabProps {
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
-// --- Confirmation Modal ---
-const ConfirmationModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    onConfirm: () => void;
-    title: string;
-    message: string;
-    language: 'ne' | 'en';
-}> = ({ isOpen, onClose, onConfirm, title, message, language }) => {
-    if (!isOpen) return null;
-    const t = translations[language];
-
-    return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-sm">
-                <h2 className="text-xl font-bold mb-2">{title}</h2>
-                <p className="text-gray-600 mb-6">{message}</p>
-                <div className="flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 font-semibold hover:bg-gray-200">{t.no}</button>
-                    <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600">{t.yes}, {t.cancel}</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-const HomeTab: React.FC<HomeTabProps> = ({ transactions, language, toggleLanguage, inventory, onInitiatePayment, onDeleteTransaction, lowStockItems, onNavigateToInventory, onQuickAddStock }) => {
+const HomeTab: React.FC<HomeTabProps> = ({ recentSales, language, toggleLanguage, inventory, onInitiatePayment, onDeleteSale, lowStockItems, onNavigateToInventory, onQuickAddStock }) => {
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -59,7 +33,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, language, toggleLanguag
   const [billItems, setBillItems] = useState<EditableBillItem[]>([]);
   const [customerName, setCustomerName] = useState<string>('');
   
-  const [showCancelConfirm, setShowCancelConfirm] = useState<string | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState<UnifiedTransaction | null>(null);
 
   const t = translations[language];
   const QUICK_STATS = getQuickStats(language);
@@ -189,10 +163,17 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, language, toggleLanguag
     setCustomerName('');
   };
   
-  const handleCancelTransaction = (transactionId: string) => {
-    onDeleteTransaction(transactionId);
+  const handleCancelTransaction = (transaction: UnifiedTransaction) => {
+    onDeleteSale(transaction);
     setShowCancelConfirm(null);
   };
+  
+  const paymentStatusInfo = useMemo(() => ({
+      cash: { text: t.paid, color: 'text-green-600', icon: <DollarSign className="w-3 h-3" /> },
+      qr: { text: t.online, color: 'text-sky-600', icon: <QrCode className="w-3 h-3" /> },
+      credit: { text: t.due, color: 'text-red-600', icon: <BookUser className="w-3 h-3" /> },
+  }), [t]);
+
 
   return (
     <>
@@ -309,7 +290,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, language, toggleLanguag
 
             <div className="border-t mt-4 pt-3 flex justify-between items-center">
                 <span className="text-gray-800 font-bold text-lg">{t.total}</span>
-                <span className="text-purple-600 font-extrabold text-xl">रु. {totalBillAmount.toFixed(2)}</span>
+                <span className="text-purple-600 font-extrabold text-xl">रू {totalBillAmount.toFixed(2)}</span>
             </div>
             <button 
                 onClick={handleConfirmBill}
@@ -389,25 +370,36 @@ const HomeTab: React.FC<HomeTabProps> = ({ transactions, language, toggleLanguag
           <button className="text-sm text-purple-600 font-medium">{t.view_all}</button>
         </div>
         <div className="space-y-1">
-          {transactions.map((txn) => (
-            <div key={txn.id} className="group flex items-center justify-between p-3 border-b last:border-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                  {txn.customerName.charAt(0)}
+          {recentSales.length > 0 ? recentSales.map((txn) => {
+            const status = paymentStatusInfo[txn.type];
+            return (
+                <div key={`${txn.originalType}-${txn.id}`} className="group flex items-center justify-between p-3 border-b last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                      {txn.customerName.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{txn.customerName}</p>
+                      <p className="text-xs text-gray-500 mt-1">{formatDateTime(txn.date, language)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                        <p className="text-sm font-bold text-gray-800">रू {txn.amount.toFixed(2)}</p>
+                        <div className={`flex items-center justify-end gap-1 mt-1 ${status.color}`}>
+                            {status.icon}
+                            <span className="text-xs font-semibold">{status.text}</span>
+                        </div>
+                    </div>
+                    <button onClick={() => setShowCancelConfirm(txn)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 self-start pt-1">
+                        <Trash2 className="w-4 h-4"/>
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{txn.customerName}</p>
-                  <p className="text-xs text-gray-500">{formatRelativeTime(txn.date, language, t)}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <p className="text-sm font-bold text-gray-800">रु. {txn.amount.toFixed(2)}</p>
-                <button onClick={() => setShowCancelConfirm(txn.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700">
-                    <Trash2 className="w-4 h-4"/>
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          }) : (
+            <p className="text-center py-4 text-sm text-gray-500">{t.no_sales_history}</p>
+          )}
         </div>
       </div>
     </div>

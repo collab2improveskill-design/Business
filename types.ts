@@ -108,3 +108,16 @@ export interface EditableBillItem {
   unit: string;
   price: string;
 }
+
+// A unified type for displaying all transactions in one list
+export interface UnifiedTransaction {
+  id: string; // Original transaction ID
+  type: 'cash' | 'qr' | 'credit';
+  customerName: string;
+  amount: number;
+  date: string; // ISO Date string
+  description: string;
+  // For deletion purposes
+  originalType: 'transaction' | 'khata';
+  customerId?: string; // Only for khata transactions
+}

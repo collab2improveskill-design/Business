@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getTabs, INITIAL_TRANSACTIONS, INITIAL_INVENTORY_ITEMS, INITIAL_KHATA_CUSTOMERS } from './constants';
-import type { Transaction, InventoryItem, EditableBillItem, KhataCustomer, KhataTransaction } from './types';
+import type { Transaction, InventoryItem, EditableBillItem, KhataCustomer, KhataTransaction, UnifiedTransaction } from './types';
 import HomeTab from './components/HomeTab';
 import InventoryTab from './components/InventoryTab';
 import PlaceholderTab from './components/PlaceholderTab';
@@ -221,18 +221,58 @@ const App: React.FC = () => {
     return newCustomer;
   };
 
+    const unifiedRecentTransactions = useMemo((): UnifiedTransaction[] => {
+        const cashAndQrSales: UnifiedTransaction[] = transactions.map(txn => ({
+            id: txn.id,
+            type: txn.paymentMethod,
+            customerName: txn.customerName,
+            amount: txn.amount,
+            date: txn.date,
+            description: txn.items.map(i => `${i.name} (Qty: ${i.quantity})`).join(', '),
+            originalType: 'transaction'
+        }));
+
+        const creditSales: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
+            cust.transactions
+                .filter(txn => txn.type === 'debit')
+                .map(txn => ({
+                    id: txn.id,
+                    type: 'credit',
+                    customerName: cust.name,
+                    amount: txn.amount,
+                    date: txn.date,
+                    description: txn.description,
+                    originalType: 'khata',
+                    customerId: cust.id
+                }))
+        );
+
+        return [...cashAndQrSales, ...creditSales]
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .slice(0, 5);
+    }, [transactions, khataCustomers]);
+
+    const handleDeleteUnifiedTransaction = (txn: UnifiedTransaction) => {
+        if (txn.originalType === 'transaction') {
+            deleteTransaction(txn.id);
+        } else if (txn.originalType === 'khata' && txn.customerId) {
+            deleteKhataTransaction(txn.customerId, txn.id);
+        }
+    };
+
+
   const TABS = getTabs(language);
 
   const renderContent = () => {
     switch(activeTab) {
       case 'home': 
         return <HomeTab 
-                    transactions={transactions}
+                    recentSales={unifiedRecentTransactions}
                     language={language}
                     toggleLanguage={toggleLanguage} 
                     inventory={inventory} 
                     onInitiatePayment={handleInitiatePayment}
-                    onDeleteTransaction={deleteTransaction}
+                    onDeleteSale={handleDeleteUnifiedTransaction}
                     lowStockItems={lowStockItems.slice(0, 3)}
                     onNavigateToInventory={handleNavigateToInventory}
                     onQuickAddStock={(item) => setQuickAddItem(item)}
@@ -244,12 +284,11 @@ const App: React.FC = () => {
                     language={language} 
                     inventory={inventory}
                     khataCustomers={khataCustomers}
+                    transactions={transactions}
                     onInitiatePayment={handleInitiatePayment}
+                    onDeleteTransaction={deleteTransaction}
                     onDeleteKhataTransaction={deleteKhataTransaction}
                     onAddNewKhataCustomer={addNewKhataCustomer}
-                    lowStockItems={lowStockItems}
-                    onNavigateToInventory={handleNavigateToInventory}
-                    onQuickAddStock={(item) => setQuickAddItem(item)}
                 />;
       default: 
         return <PlaceholderTab pageName={TABS.find(t => t.id === activeTab)?.label || ''} language={language} />;
