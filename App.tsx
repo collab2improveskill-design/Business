@@ -10,6 +10,7 @@ import QuickAddStockModal from './components/QuickAddStockModal';
 import PaymentSelectionModal from './components/PaymentSelectionModal';
 import CreateKhataModal from './components/CreateKhataModal';
 import { translations } from './translations';
+import AnalyticsTab from './components/AnalyticsTab';
 
 // Custom hook for persisting state to localStorage
 function usePersistentState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
@@ -302,6 +303,7 @@ const App: React.FC = () => {
             amount: txn.amount,
             date: txn.date,
             description: txn.items.map(i => `${i.name} (Qty: ${i.quantity})`).join(', '),
+            items: txn.items,
             originalType: 'transaction'
         }));
 
@@ -315,6 +317,7 @@ const App: React.FC = () => {
                     amount: txn.amount,
                     date: txn.date,
                     description: txn.description,
+                    items: txn.items,
                     originalType: 'khata',
                     customerId: cust.id
                 }))
@@ -352,18 +355,27 @@ const App: React.FC = () => {
                 />;
       case 'inventory': 
         return <InventoryTab language={language} inventory={inventory} setInventory={setInventory} />;
-      case 'billing':
+      case 'karobar':
         return <KarobarTab 
                     language={language} 
                     inventory={inventory}
                     khataCustomers={khataCustomers}
-                    transactions={transactions}
-                    onDeleteTransaction={deleteTransaction}
                     onDeleteKhataTransaction={deleteKhataTransaction}
                     onOpenCreateKhata={() => setCreateKhataModalOpen(true)}
                     onAddItemsToKhata={handleAddItemsToKhata}
                     onKhataSettlement={handleKhataSettlement}
                 />;
+      case 'analytics':
+        return <AnalyticsTab
+                  language={language}
+                  inventory={inventory}
+                  transactions={transactions}
+                  khataCustomers={khataCustomers}
+                  onDeleteTransaction={deleteTransaction}
+                  onDeleteKhataTransaction={deleteKhataTransaction}
+                />;
+      case 'customers':
+        return <PlaceholderTab pageName={TABS.find(t => t.id === activeTab)?.label || ''} language={language} />;
       default: 
         return <PlaceholderTab pageName={TABS.find(t => t.id === activeTab)?.label || ''} language={language} />;
     }
@@ -401,7 +413,7 @@ const App: React.FC = () => {
             {renderContent()}
         </main>
 
-        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg max-w-md mx-auto">
+        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg max-w-md mx-auto print:hidden">
             <nav className="flex justify-around items-center py-2">
             {TABS.map((tab) => {
                 const Icon = tab.icon;

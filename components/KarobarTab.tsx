@@ -1,11 +1,10 @@
-// v2.1 - Critical Update: Implemented Smart Payment Chips and Quick Cash features for advanced Khata settlement. Resolved deployment/sync issue to ensure features were live. QA verified.
+// v2.2 - Refactored to focus solely on Khata management. Sales history moved to Analytics tab.
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, X, User, Phone, MapPin, Hash, UserPlus, Mic, Loader, Trash2, DollarSign, QrCode, BookUser, ShoppingCart, CheckCircle } from 'lucide-react';
+import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle } from 'lucide-react';
 import { translations } from '../translations';
-import type { KhataCustomer, EditableBillItem, InventoryItem, UnifiedTransaction, Transaction } from '../types';
+import type { KhataCustomer, EditableBillItem, InventoryItem } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 import { generateId, findInventoryItem, formatDateTime } from '../utils';
-import ConfirmationModal from './ConfirmationModal';
 import SelectKhataScreen from './SelectKhataScreen';
 import KhataPaymentModal from './KhataPaymentModal';
 
@@ -16,43 +15,11 @@ interface KarobarTabProps {
     language: 'ne' | 'en';
     inventory: InventoryItem[];
     khataCustomers: KhataCustomer[];
-    transactions: Transaction[];
-    onDeleteTransaction: (transactionId: string) => void;
     onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
     onOpenCreateKhata: () => void;
     onAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
     onKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr') => { success: boolean, error?: string };
 }
-
-interface ToggleOption {
-    label: string;
-    value: string;
-}
-
-const ToggleSwitch: React.FC<{ options: ToggleOption[]; value: string; onChange: (value: string) => void; }> = ({ options, value, onChange }) => {
-    const activeIndex = options.findIndex(opt => opt.value === value);
-
-    return (
-        <div className="relative flex w-full p-1 bg-gray-200 rounded-full">
-            <div
-                className="absolute top-1 bottom-1 w-1/2 bg-purple-600 rounded-full shadow-md transition-transform duration-300 ease-out"
-                style={{ transform: `translateX(${activeIndex * 100}%)` }}
-            />
-            {options.map((option, index) => (
-                <button
-                    key={option.value}
-                    onClick={() => onChange(option.value)}
-                    className={`relative z-10 flex-1 py-2 text-center text-sm font-semibold transition-colors duration-300 rounded-full ${
-                        activeIndex === index ? 'text-white' : 'text-gray-600'
-                    }`}
-                    aria-pressed={activeIndex === index}
-                >
-                    {option.label}
-                </button>
-            ))}
-        </div>
-    );
-};
 
 // --- KhataDetailModal ---
 const KhataDetailModal: React.FC<{
@@ -371,150 +338,8 @@ const KhataListView: React.FC<{
     );
 };
 
-// --- SalesHistoryView ---
-const SalesHistoryView: React.FC<{
-    language: 'ne' | 'en';
-    transactions: Transaction[];
-    khataCustomers: KhataCustomer[];
-    onDeleteTransaction: (transactionId: string) => void;
-    onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
-}> = ({ language, transactions, khataCustomers, onDeleteTransaction, onDeleteKhataTransaction }) => {
-    const t = translations[language];
-    const [filter, setFilter] = useState<'all' | 'cash' | 'qr' | 'credit'>('all');
-    const [confirmDelete, setConfirmDelete] = useState<UnifiedTransaction | null>(null);
-
-    const unifiedTransactions = useMemo((): UnifiedTransaction[] => {
-        const cashAndQrSales: UnifiedTransaction[] = transactions.map(txn => ({
-            id: txn.id,
-            type: txn.paymentMethod,
-            customerName: txn.customerName,
-            amount: txn.amount,
-            date: txn.date,
-            description: txn.items.map(i => i.name).join(', '),
-            originalType: 'transaction'
-        }));
-
-        const creditSales: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
-            cust.transactions
-                .filter(txn => txn.type === 'debit')
-                .map(txn => ({
-                    id: txn.id,
-                    type: 'credit',
-                    customerName: cust.name,
-                    amount: txn.amount,
-                    date: txn.date,
-                    description: txn.description,
-                    originalType: 'khata',
-                    customerId: cust.id
-                }))
-        );
-
-        return [...cashAndQrSales, ...creditSales].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [transactions, khataCustomers]);
-
-    const filteredTransactions = useMemo(() => {
-        if (filter === 'all') return unifiedTransactions;
-        return unifiedTransactions.filter(txn => txn.type === filter);
-    }, [filter, unifiedTransactions]);
-
-    const handleDelete = () => {
-        if (!confirmDelete) return;
-        if (confirmDelete.originalType === 'transaction') {
-            onDeleteTransaction(confirmDelete.id);
-        } else if (confirmDelete.originalType === 'khata' && confirmDelete.customerId) {
-            onDeleteKhataTransaction(confirmDelete.customerId, confirmDelete.id);
-        }
-        setConfirmDelete(null);
-    };
-
-    const paymentIcons: { [key in 'cash' | 'qr' | 'credit']: React.ReactElement } = useMemo(() => ({
-        cash: <DollarSign className="w-5 h-5 text-green-600" />,
-        qr: <QrCode className="w-5 h-5 text-sky-600" />,
-        credit: <BookUser className="w-5 h-5 text-red-600" />,
-    }), []);
-    
-    const paymentStatusInfo = useMemo(() => ({
-        cash: { text: t.paid, color: 'text-green-600', icon: <DollarSign className="w-3 h-3" /> },
-        qr: { text: t.online, color: 'text-sky-600', icon: <QrCode className="w-3 h-3" /> },
-        credit: { text: t.due, color: 'text-red-600', icon: <BookUser className="w-3 h-3" /> },
-    }), [t]);
-
-
-    const filterButtons = [
-        { label: t.filter_all, value: 'all' },
-        { label: t.filter_cash, value: 'cash' },
-        { label: t.filter_qr, value: 'qr' },
-        { label: t.filter_credit, value: 'credit' },
-    ];
-
-    return (
-        <div className="space-y-4">
-            <ConfirmationModal
-                isOpen={!!confirmDelete}
-                onClose={() => setConfirmDelete(null)}
-                onConfirm={handleDelete}
-                title={t.confirm_delete_txn_title}
-                message={t.confirm_delete_txn_desc}
-                language={language}
-            />
-            <div className="flex justify-around bg-gray-100 rounded-lg p-1">
-                {filterButtons.map(btn => (
-                    <button
-                        key={btn.value}
-                        onClick={() => setFilter(btn.value as any)}
-                        className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-colors ${
-                            filter === btn.value
-                                ? 'bg-purple-600 text-white shadow'
-                                : 'text-gray-600 hover:bg-gray-200'
-                        }`}
-                    >
-                        {btn.label}
-                    </button>
-                ))}
-            </div>
-            {filteredTransactions.length === 0 ? (
-                <div className="text-center p-10 text-gray-500 bg-white rounded-xl shadow-sm">
-                    <p>{t.no_sales_history}</p>
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {filteredTransactions.map(txn => {
-                        const status = paymentStatusInfo[txn.type];
-                        return (
-                            <div key={`${txn.originalType}-${txn.id}`} className="group bg-white rounded-xl p-3 shadow-sm flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                                        {paymentIcons[txn.type]}
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-sm text-gray-800">{txn.customerName}</p>
-                                        <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                     <div className="text-right">
-                                        <p className="font-bold text-gray-800">रू {txn.amount.toFixed(2)}</p>
-                                        <div className={`flex items-center justify-end gap-1 mt-1 ${status.color}`}>
-                                            {status.icon}
-                                            <span className="text-xs font-semibold">{status.text}</span>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => setConfirmDelete(txn)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 self-start pt-1">
-                                        <Trash2 className="w-4 h-4"/>
-                                    </button>
-                                </div>
-                            </div>
-                        )
-                    })}
-                </div>
-            )}
-        </div>
-    );
-};
-
 const KarobarTab: React.FC<KarobarTabProps> = (props) => {
     const { language, khataCustomers, onOpenCreateKhata } = props;
-    const [activeView, setActiveView] = useState('khata');
     const [selectedCustomer, setSelectedCustomer] = useState<KhataCustomer | null>(null);
     const [isSelectingKhata, setIsSelectingKhata] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
@@ -527,11 +352,6 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
             return () => clearTimeout(timer);
         }
     }, [successMessage]);
-
-    const toggleOptions = [
-        { label: t.khata_view, value: 'khata' },
-        { label: t.sales_history_view, value: 'sales_history' }
-    ];
 
     const handleSelectCustomer = (customer: KhataCustomer) => {
         setIsSelectingKhata(false);
@@ -580,21 +400,15 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
                 onKhataSettlement={props.onKhataSettlement}
                 onShowSuccess={setSuccessMessage}
             />
-            <h1 className="text-2xl font-bold text-gray-800">{t.billing_tab}</h1>
-            <ToggleSwitch options={toggleOptions} value={activeView} onChange={setActiveView} />
+            <h1 className="text-2xl font-bold text-gray-800">{t.karobar_tab}</h1>
+            
+            <KhataListView 
+                language={language}
+                customers={khataCustomers}
+                onSelectCustomer={handleSelectCustomer}
+                onOpenSelectKhata={handleOpenSelectKhata}
+            />
 
-            {activeView === 'khata' && (
-                <KhataListView 
-                    language={language}
-                    customers={khataCustomers}
-                    onSelectCustomer={handleSelectCustomer}
-                    onOpenSelectKhata={handleOpenSelectKhata}
-                />
-            )}
-
-            {activeView === 'sales_history' && (
-                 <SalesHistoryView {...props} />
-            )}
         </div>
     );
 };

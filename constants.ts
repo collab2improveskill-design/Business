@@ -5,7 +5,7 @@ import { translations } from './translations';
 export const getTabs = (lang: 'ne' | 'en'): Tab[] => [
   { id: 'home', icon: Home, label: translations[lang].home_tab },
   { id: 'inventory', icon: Package, label: translations[lang].inventory_tab },
-  { id: 'billing', icon: FileText, label: translations[lang].billing_tab },
+  { id: 'karobar', icon: FileText, label: translations[lang].karobar_tab },
   { id: 'analytics', icon: TrendingUp, label: translations[lang].analytics_tab },
   { id: 'customers', icon: Users, label: translations[lang].customers_tab },
 ];

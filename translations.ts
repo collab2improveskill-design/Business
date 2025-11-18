@@ -28,7 +28,7 @@ export const translations = {
     // Tabs
     home_tab: "गृहपृष्ठ",
     inventory_tab: "स्टक",
-    billing_tab: "कारोबार",
+    karobar_tab: "कारोबार",
     analytics_tab: "विश्लेषण",
     customers_tab: "ग्राहक",
     
@@ -111,6 +111,7 @@ export const translations = {
     khata_view: "खाता",
     low_stocks_view: "कम स्टक",
     sales_history_view: "बिक्री इतिहास",
+    summary_view: "सारांश",
     filter_all: "सबै",
     filter_cash: "नगद",
     filter_qr: "QR",
@@ -197,7 +198,7 @@ export const translations = {
     // Tabs
     home_tab: "Home",
     inventory_tab: "Inventory",
-    billing_tab: "Karobar",
+    karobar_tab: "Karobar",
     analytics_tab: "Analytics",
     customers_tab: "Customers",
 
@@ -281,6 +282,7 @@ export const translations = {
     khata_view: "Khata",
     low_stocks_view: "Low Stocks",
     sales_history_view: "Sales History",
+    summary_view: "Summary",
     filter_all: "All",
     filter_cash: "Cash",
     filter_qr: "QR",
