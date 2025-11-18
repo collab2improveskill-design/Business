@@ -29,7 +29,7 @@ const SalesLineChart: React.FC<{
     const svgRef = useRef<SVGSVGElement>(null);
     const width = 320;
     const height = 180;
-    const margin = { top: 10, right: 10, bottom: 30, left: 10 };
+    const margin = { top: 10, right: 10, bottom: 30, left: 35 };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
@@ -46,6 +46,23 @@ const SalesLineChart: React.FC<{
     const timeEnd = useMemo(() => new Date(dateRange.start).setHours(22, 0, 0, 0), [dateRange.start]);
     const isMultiDay = dateToYMD(dateRange.start) !== dateToYMD(dateRange.end);
     
+    const yScale = useCallback((value: number) => innerHeight - (Math.max(0, value) / yMax) * innerHeight, [innerHeight, yMax]);
+
+    const yAxisLabels = useMemo(() => {
+        const ticks = 4;
+        if (yMax <= 0) return [];
+        return Array.from({ length: ticks + 1 }, (_, i) => {
+            const value = (yMax / ticks) * i;
+            const y = yScale(value);
+            let label = `Rs. ${value.toFixed(0)}`;
+            if (value >= 1000) {
+                label = `Rs. ${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`;
+            }
+            return { y, label };
+        });
+    }, [yMax, yScale]);
+
+
     const xScale = useCallback((date: Date) => {
         if(isMultiDay) {
             const range = dateRange.end.getTime() - dateRange.start.getTime();
@@ -56,9 +73,7 @@ const SalesLineChart: React.FC<{
         return ((date.getTime() - timeStart) / range) * innerWidth;
     }, [dateRange, timeStart, timeEnd, innerWidth, isMultiDay]);
 
-    const yScale = useCallback((value: number) => innerHeight - (Math.max(0, value) / yMax) * innerHeight, [innerHeight, yMax]);
-
-    const createSmoothPath = (key: 'cash' | 'qr' | 'credit', tension = 0.4) => {
+    const createSmoothPath = (key: 'cash' | 'qr' | 'credit', tension = 0.2) => {
         const points = data.map(d => ({ x: xScale(new Date(d.date)), y: yScale(d[key]) }));
         let d = `M ${points[0].x} ${points[0].y}`;
         for (let i = 0; i < points.length - 1; i++) {
@@ -92,7 +107,19 @@ const SalesLineChart: React.FC<{
     return (
         <svg ref={svgRef} width="100%" viewBox={`0 0 ${width} ${height}`}>
             <g transform={`translate(${margin.left},${margin.top})`}>
-                 <line x1="0" y1={innerHeight} x2={innerWidth} y2={innerHeight} stroke="black" strokeWidth="1" />
+                {/* Y-Axis Labels and Grid Lines */}
+                <g className="text-xs text-gray-500">
+                    {yAxisLabels.map(({ y, label }, i) => (
+                        <g key={i}>
+                            <line x1={0} x2={innerWidth} y1={y} y2={y} stroke="#e5e7eb" strokeDasharray="2,2" />
+                            <text x={-5} y={y} dy="0.32em" textAnchor="end" fill="#6b7280" fontSize="10">
+                                {label}
+                            </text>
+                        </g>
+                    ))}
+                </g>
+
+                <line x1="0" y1={innerHeight} x2={innerWidth} y2={innerHeight} stroke="black" strokeWidth="1" />
                 <g className="text-xs text-gray-500">
                     {data.map((d, i) => {
                         const showLabel = isMultiDay 
@@ -274,8 +301,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         }
     }, [filteredTransactions, dateRange]);
     
-    const isNextDisabled = useMemo(() => dateToYMD(dateRange.end) === dateToYMD(new Date()), [dateRange]);
-    const isMultiDayView = useMemo(() => dateToYMD(dateRange.start) !== dateToYMD(dateRange.end), [dateRange]);
+    const isNextDisabled = useMemo(() => dateToYMD(dateRange.end) >= dateToYMD(new Date()), [dateRange]);
 
     const setDatePreset = (preset: 'today' | 'yesterday' | '7d' | '14d' | '28d') => {
         const end = new Date();
@@ -286,6 +312,9 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         start.setHours(0, 0, 0, 0);
 
         switch (preset) {
+            case 'today':
+                // Already set
+                break;
             case 'yesterday':
                 start.setDate(start.getDate() - 1);
                 end.setDate(end.getDate() - 1);
@@ -311,20 +340,49 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
 
     const handleDateNav = useCallback((direction: 'prev' | 'next') => {
         if (direction === 'next' && isNextDisabled) return;
+    
         const newStartDate = new Date(dateRange.start);
-        newStartDate.setDate(newStartDate.getDate() + (direction === 'next' ? 1 : -1));
-        const newEndDate = new Date(newStartDate);
+        const newEndDate = new Date(dateRange.end);
+    
+        const diffTime = newEndDate.getTime() - newStartDate.getTime();
+        // Use Math.round to handle DST cases where a day might not be exactly 24h.
+        const durationDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    
+        const offset = direction === 'next' ? durationDays : -durationDays;
         
-        const today = new Date(); today.setHours(0,0,0,0);
-        const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
-
+        newStartDate.setDate(newStartDate.getDate() + offset);
+        newEndDate.setDate(newEndDate.getDate() + offset);
+        
+        newStartDate.setHours(0, 0, 0, 0);
+        newEndDate.setHours(23, 59, 59, 999);
+        
+        // For single day ranges, ensure end date matches start date after offset.
+        if (durationDays === 1) {
+            newEndDate.setDate(newStartDate.getDate());
+        }
+    
         setDateRange({ start: newStartDate, end: newEndDate });
+    
+        // Update Label Logic
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+    
+        if (durationDays === 1) { // If it was a single day view
+            if (dateToYMD(newStartDate) === dateToYMD(today)) {
+                setDateRangeLabel('Today');
+            } else if (dateToYMD(newStartDate) === dateToYMD(yesterday)) {
+                setDateRangeLabel('Yesterday');
+            } else {
+                setDateRangeLabel(newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+            }
+        } else { // If it was a multi-day view
+            const startStr = newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric' });
+            const endStr = newEndDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            setDateRangeLabel(`${startStr} - ${endStr}`);
+        }
+    }, [dateRange, isNextDisabled, language]);
 
-        if (dateToYMD(newStartDate) === dateToYMD(today)) setDateRangeLabel('Today');
-        else if (dateToYMD(newStartDate) === dateToYMD(yesterday)) setDateRangeLabel('Yesterday');
-        else setDateRangeLabel(newStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-
-    }, [dateRange.start, isNextDisabled]);
 
     const handleDelete = () => {
         if (!confirmDelete) return;
@@ -363,12 +421,12 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
                 <div className="flex items-center gap-2">
                      <div className="relative flex-1" ref={dateFilterRef}>
                          <div className="flex items-center justify-between bg-gray-50 border rounded-lg p-1">
-                            <button onClick={() => handleDateNav('prev')} disabled={isMultiDayView} className="p-1.5 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronLeft className="w-5 h-5 text-gray-600"/></button>
+                            <button onClick={() => handleDateNav('prev')} className="p-1.5 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronLeft className="w-5 h-5 text-gray-600"/></button>
                             <button onClick={() => setIsDateFilterOpen(p => !p)} className="flex items-center gap-1.5 text-sm font-semibold text-purple-700">
                                <Calendar className="w-4 h-4" />
                                <span>{dateRangeLabel}</span>
                             </button>
-                            <button onClick={() => handleDateNav('next')} disabled={isNextDisabled || isMultiDayView} className="p-1.5 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronRight className="w-5 h-5 text-gray-600"/></button>
+                            <button onClick={() => handleDateNav('next')} disabled={isNextDisabled} className="p-1.5 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed"><ChevronRight className="w-5 h-5 text-gray-600"/></button>
                          </div>
                          {isDateFilterOpen && (
                              <div className="absolute top-full mt-2 w-full bg-white rounded-lg shadow-lg border z-10 p-2 space-y-1">
