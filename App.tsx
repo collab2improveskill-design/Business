@@ -1,17 +1,16 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { getTabs } from './constants';
-import type { InventoryItem, EditableBillItem, UnifiedTransaction } from './types';
+import type { InventoryItem, EditableBillItem } from './types';
 import HomeTab from './components/HomeTab';
 import InventoryTab from './components/InventoryTab';
 import PlaceholderTab from './components/PlaceholderTab';
 import KarobarTab from './components/KarobarTab';
-import ErrorBoundary from './components/ErrorBoundary';
 import QuickAddStockModal from './components/QuickAddStockModal';
 import PaymentSelectionModal from './components/PaymentSelectionModal';
 import CreateKhataModal from './components/CreateKhataModal';
 import AnalyticsTab from './components/AnalyticsTab';
-import { KiranaProvider, useKirana } from './context/KiranaContext';
+import { useKirana } from './context/KiranaContext';
 import { runSelfDiagnostic } from './utils/diagnostics';
 
 // Expose diagnostics to window for manual testing
@@ -21,7 +20,7 @@ type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; 
 
 const MainLayout: React.FC = () => {
   const { 
-      language, toggleLanguage, 
+      language, 
       inventory, addStock, 
       handleConfirmSale, addNewKhataCustomer,
       khataCustomers
@@ -104,7 +103,7 @@ const MainLayout: React.FC = () => {
             onClose={closePaymentModal}
             billTotal={paymentModalState.totalAmount}
             context={paymentModalState.context}
-            onFinalizeSale={handleConfirmSale} // Still passing this to keep Modal dumb, or could use context inside Modal
+            onFinalizeSale={handleConfirmSale}
             language={language}
             onOpenCreateKhata={() => setCreateKhataModalOpen(true)}
             billItems={paymentModalState.billItems}
@@ -151,13 +150,7 @@ const MainLayout: React.FC = () => {
 };
 
 const App: React.FC = () => {
-    return (
-        <ErrorBoundary>
-            <KiranaProvider>
-                <MainLayout />
-            </KiranaProvider>
-        </ErrorBoundary>
-    );
+    return <MainLayout />;
 };
 
 export default App;

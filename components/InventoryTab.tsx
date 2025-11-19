@@ -247,6 +247,12 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
         if (!imageFile) return;
         setIsProcessing(true);
         setError(null);
+        
+        // Critical Fix for Async UX: 
+        // We yield to the main thread for 50ms to ensure the browser has time to 
+        // paint the "Processing..." spinner state before the CPU-intensive image compression starts.
+        await new Promise(resolve => setTimeout(resolve, 50));
+
         try {
             // Use the new compression utility
             const base64 = await compressAndConvertToBase64(imageFile);
