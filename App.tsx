@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { getTabs } from './constants';
-import type { InventoryItem, EditableBillItem } from './types';
+import type { InventoryItem, EditableBillItem, PaymentContext } from './types';
 import HomeTab from './components/HomeTab';
 import InventoryTab from './components/InventoryTab';
 import PlaceholderTab from './components/PlaceholderTab';
@@ -15,8 +14,6 @@ import { runSelfDiagnostic } from './utils/diagnostics';
 
 // Expose diagnostics to window for manual testing
 (window as any).runDiagnostics = runSelfDiagnostic;
-
-type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
 
 const MainLayout: React.FC = () => {
   const { 

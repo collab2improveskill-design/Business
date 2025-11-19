@@ -1,9 +1,7 @@
-
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { DollarSign, Search, ChevronLeft, ChevronRight, Calendar, ChevronDown, ArrowUp, ArrowDown, PieChart, TrendingUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, ChevronDown, ArrowUp, ArrowDown, PieChart, TrendingUp } from 'lucide-react';
 import { translations } from '../translations';
 import type { UnifiedTransaction } from '../types';
-import { formatDateTime } from '../utils';
 import ConfirmationModal from './ConfirmationModal';
 import { useKirana } from '../context/KiranaContext';
 
@@ -28,7 +26,7 @@ const CategoryDonutChart: React.FC<{ data: { category: string; amount: number; c
 
     if (total === 0) {
         return (
-            <div className="h-40 flex items-center justify-center text-gray-400 text-xs bg-gray-50 rounded-full aspect-square mx-auto">
+            <div className="h-40 flex items-center justify-center text-gray-400 text-xs bg-gray-50 rounded-full aspect-square mx-auto border-2 border-dashed">
                 No Data
             </div>
         );
@@ -40,6 +38,12 @@ const CategoryDonutChart: React.FC<{ data: { category: string; amount: number; c
                 {data.map((slice, index) => {
                     const percentage = slice.amount / total;
                     const angle = percentage * 360;
+                    
+                    // If only one category, draw full circle
+                    if (data.length === 1) {
+                        return <circle key={slice.category} cx="50" cy="50" r="50" fill={slice.color} />;
+                    }
+
                     const largeArcFlag = percentage > 0.5 ? 1 : 0;
                     
                     // Calculate coordinates
@@ -65,8 +69,8 @@ const CategoryDonutChart: React.FC<{ data: { category: string; amount: number; c
                 })}
                 <circle cx="50" cy="50" r="35" fill="white" />
             </svg>
-            <div className="absolute inset-0 flex items-center justify-center flex-col">
-                 <span className="text-xs text-gray-500 font-medium">Total</span>
+            <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
+                 <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Total</span>
                  <span className="text-sm font-bold text-gray-800">Rs.{(total/1000).toFixed(1)}k</span>
             </div>
         </div>
@@ -79,7 +83,8 @@ const SalesLineChart: React.FC<{
     transactions: UnifiedTransaction[];
     dateRange: { start: Date; end: Date };
     onDotHover: (data: TooltipData | null) => void;
-}> = ({ data, transactions, dateRange, onDotHover }) => {
+    language: 'ne' | 'en';
+}> = ({ data, transactions, dateRange, onDotHover, language }) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const width = 320;
     const height = 180;
@@ -98,7 +103,7 @@ const SalesLineChart: React.FC<{
 
     const timeStart = useMemo(() => new Date(dateRange.start).setHours(5, 0, 0, 0), [dateRange.start]);
     const timeEnd = useMemo(() => new Date(dateRange.start).setHours(22, 0, 0, 0), [dateRange.start]);
-    const isMultiDay = dateToYMD(dateRange.start) !== dateToYMD(dateRange.end);
+    const isMultiDay = new Date(dateRange.start).toDateString() !== new Date(dateRange.end).toDateString();
     
     const yScale = useCallback((value: number) => innerHeight - (Math.max(0, value) / yMax) * innerHeight, [innerHeight, yMax]);
 
@@ -159,6 +164,8 @@ const SalesLineChart: React.FC<{
         onDotHover({ visible: true, x, y, transaction: txn });
     };
 
+    const locale = language === 'ne' ? 'ne-NP' : 'en-US';
+
     return (
         <svg ref={svgRef} width="100%" viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
             <g transform={`translate(${margin.left},${margin.top})`}>
@@ -184,8 +191,8 @@ const SalesLineChart: React.FC<{
                         
                         const date = new Date(d.date);
                         const label = isMultiDay
-                            ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                            : date.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }).replace(':00', '').toLowerCase();
+                            ? date.toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+                            : date.toLocaleTimeString(locale, { hour: 'numeric', hour12: true }).replace(':00', '').toLowerCase();
 
                         return (
                             <text key={i} x={xScale(date)} y={innerHeight + 20} textAnchor="middle" fontSize="9">
@@ -252,11 +259,44 @@ const AnalyticsTab: React.FC = () => {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+    
+    // Update label when language changes
+    useEffect(() => {
+        const locale = language === 'ne' ? 'ne-NP' : 'en-US';
+        const today = new Date();
+        const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+        
+        if (dateToYMD(dateRange.start) === dateToYMD(today) && dateToYMD(dateRange.end) === dateToYMD(today)) {
+            setDateRangeLabel(language === 'ne' ? 'आज' : 'Today');
+        } else if (dateToYMD(dateRange.start) === dateToYMD(yesterday) && dateToYMD(dateRange.end) === dateToYMD(yesterday)) {
+            setDateRangeLabel(language === 'ne' ? 'हिजो' : 'Yesterday');
+        } else {
+            const startStr = dateRange.start.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+            const endStr = dateRange.end.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+            if(dateRange.start.getTime() === dateRange.end.getTime()){
+                 setDateRangeLabel(startStr);
+            } else {
+                 setDateRangeLabel(`${startStr} - ${endStr}`);
+            }
+        }
+    }, [language, dateRange]);
 
     const unifiedTransactions = useMemo((): UnifiedTransaction[] => {
-        const cashAndQrSales = transactions.map(txn => ({ ...txn, type: txn.paymentMethod as 'cash' | 'qr', originalType: 'transaction' as const, description: txn.items.map(i => i.name).join(', ') }));
-        const creditSales = khataCustomers.flatMap(cust =>
-            cust.transactions.filter(txn => txn.type === 'debit').map(txn => ({ ...txn, type: 'credit' as const, customerName: cust.name, originalType: 'khata' as const, customerId: cust.id }))
+        const cashAndQrSales: UnifiedTransaction[] = transactions.map(txn => ({ 
+            ...txn, 
+            type: txn.paymentMethod as 'cash' | 'qr', 
+            originalType: 'transaction' as const, 
+            description: txn.items.map(i => i.name).join(', ') 
+        }));
+        
+        const creditSales: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
+            cust.transactions.filter(txn => txn.type === 'debit').map(txn => ({ 
+                ...txn, 
+                type: 'credit' as const, 
+                customerName: cust.name, 
+                originalType: 'khata' as const, 
+                customerId: cust.id 
+            }))
         );
         return [...cashAndQrSales, ...creditSales].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [transactions, khataCustomers]);
@@ -386,7 +426,6 @@ const AnalyticsTab: React.FC = () => {
     const setDatePreset = (preset: 'today' | 'yesterday' | '7d' | '14d' | '28d') => {
         const end = new Date();
         const start = new Date();
-        let label = 'Today';
         
         end.setHours(23, 59, 59, 999);
         start.setHours(0, 0, 0, 0);
@@ -396,23 +435,18 @@ const AnalyticsTab: React.FC = () => {
             case 'yesterday':
                 start.setDate(start.getDate() - 1);
                 end.setDate(end.getDate() - 1);
-                label = 'Yesterday';
                 break;
             case '7d':
                 start.setDate(start.getDate() - 6);
-                label = 'Last 7 days';
                 break;
             case '14d':
                 start.setDate(start.getDate() - 13);
-                label = 'Last 14 days';
                 break;
             case '28d':
                 start.setDate(start.getDate() - 27);
-                label = 'Last 28 days';
                 break;
         }
         setDateRange({ start, end });
-        setDateRangeLabel(label);
         setIsDateFilterOpen(false);
     };
 
@@ -435,21 +469,7 @@ const AnalyticsTab: React.FC = () => {
         if (durationDays === 1) newEndDate.setDate(newStartDate.getDate());
     
         setDateRange({ start: newStartDate, end: newEndDate });
-    
-        const today = new Date();
-        const yesterday = new Date();
-        yesterday.setDate(today.getDate() - 1);
-    
-        if (durationDays === 1) { 
-            if (dateToYMD(newStartDate) === dateToYMD(today)) setDateRangeLabel('Today');
-            else if (dateToYMD(newStartDate) === dateToYMD(yesterday)) setDateRangeLabel('Yesterday');
-            else setDateRangeLabel(newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
-        } else {
-            const startStr = newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric' });
-            const endStr = newEndDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            setDateRangeLabel(`${startStr} - ${endStr}`);
-        }
-    }, [dateRange, isNextDisabled, language]);
+    }, [dateRange, isNextDisabled]);
 
 
     const handleDelete = () => {
@@ -502,7 +522,7 @@ const AnalyticsTab: React.FC = () => {
                     </div>
                      <div className="relative flex-1">
                         <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full h-full appearance-none p-2 border bg-gray-50 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-                            {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === 'all' ? 'All Categories' : cat}</option>)}
+                            {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === 'all' ? (language === 'ne' ? 'सबै वर्ग' : 'All Categories') : cat}</option>)}
                         </select>
                         <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                     </div>
@@ -521,15 +541,18 @@ const AnalyticsTab: React.FC = () => {
                 <div className={`p-3 rounded-xl flex items-center gap-3 shadow-sm border ${dailyInsight.isPositive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                     {dailyInsight.isPositive ? <TrendingUp className="w-5 h-5 text-green-600"/> : <ArrowDown className="w-5 h-5 text-red-600"/>}
                     <p className={`text-sm font-medium ${dailyInsight.isPositive ? 'text-green-800' : 'text-red-800'}`}>
-                        Sales are <span className="font-bold">{Math.abs(dailyInsight.percentage)}% {dailyInsight.isPositive ? 'higher' : 'lower'}</span> than yesterday.
+                        {language === 'ne' 
+                         ? <>बिक्री हिजो भन्दा <span className="font-bold">{Math.abs(dailyInsight.percentage)}% {dailyInsight.isPositive ? 'बढी' : 'कम'}</span> छ।</>
+                         : <>Sales are <span className="font-bold">{Math.abs(dailyInsight.percentage)}% {dailyInsight.isPositive ? 'higher' : 'lower'}</span> than yesterday.</>
+                        }
                     </p>
                 </div>
             )}
            
             {/* Sales Graph */}
             <div className="bg-white rounded-xl p-4 shadow-sm text-gray-800 border relative">
-                <h3 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4"/> Sales Trend</h3>
-                <SalesLineChart data={chartData} transactions={filteredTransactions} dateRange={dateRange} onDotHover={setTooltipData} />
+                <h3 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4"/> {language === 'ne' ? 'बिक्री प्रवृत्ति' : 'Sales Trend'}</h3>
+                <SalesLineChart data={chartData} transactions={filteredTransactions} dateRange={dateRange} onDotHover={setTooltipData} language={language} />
                  {tooltipData?.visible && (
                     <div className="absolute bg-gray-900 text-white p-3 rounded-lg text-xs shadow-xl pointer-events-none z-20 w-48" style={{ left: `${tooltipData.x}px`, top: `${tooltipData.y}px`, transform: 'translate(-50%, -110%)' }}>
                         <div className="flex justify-between items-start mb-1">
@@ -537,7 +560,7 @@ const AnalyticsTab: React.FC = () => {
                             <span className="font-mono text-green-400">Rs.{tooltipData.transaction.amount.toFixed(0)}</span>
                         </div>
                         <p className="text-gray-300 line-clamp-2 mb-1">{tooltipData.transaction.description}</p>
-                        <p className="text-gray-500 text-[10px]">{new Date(tooltipData.transaction.date).toLocaleTimeString(language, { hour: 'numeric', minute: '2-digit' })}</p>
+                        <p className="text-gray-500 text-[10px]">{new Date(tooltipData.transaction.date).toLocaleTimeString(language === 'ne' ? 'ne-NP' : 'en-US', { hour: 'numeric', minute: '2-digit' })}</p>
                     </div>
                  )}
             </div>
@@ -545,7 +568,7 @@ const AnalyticsTab: React.FC = () => {
             {/* Summary Cards */}
             <div className="grid grid-cols-3 gap-2">
                  <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
-                     <p className="text-xs text-green-600 font-medium mb-1">Cash</p>
+                     <p className="text-xs text-green-600 font-medium mb-1">{t.filter_cash}</p>
                      <p className="text-lg font-bold text-green-700">Rs.{totals.cash.toFixed(0)}</p>
                  </div>
                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
@@ -553,14 +576,14 @@ const AnalyticsTab: React.FC = () => {
                      <p className="text-lg font-bold text-blue-700">Rs.{totals.qr.toFixed(0)}</p>
                  </div>
                  <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
-                     <p className="text-xs text-red-600 font-medium mb-1">Credit</p>
+                     <p className="text-xs text-red-600 font-medium mb-1">{t.filter_credit}</p>
                      <p className="text-lg font-bold text-red-700">Rs.{totals.credit.toFixed(0)}</p>
                  </div>
             </div>
 
             {/* Category Breakdown */}
             <div className="bg-white rounded-xl p-4 shadow-sm border">
-                <h3 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4"/> Category Distribution</h3>
+                <h3 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4"/> {language === 'ne' ? 'वर्ग अनुसार' : 'Category Distribution'}</h3>
                 <div className="flex items-center gap-4">
                     <div className="flex-1">
                         <CategoryDonutChart data={categoryData} />
@@ -581,7 +604,7 @@ const AnalyticsTab: React.FC = () => {
 
             {/* Transaction List */}
             <div className="space-y-2 pb-6">
-                <h3 className="text-sm font-bold text-gray-500 mb-2 ml-1">Detailed Transactions</h3>
+                <h3 className="text-sm font-bold text-gray-500 mb-2 ml-1">{language === 'ne' ? 'विस्तृत कारोबार' : 'Detailed Transactions'}</h3>
                 {filteredTransactions.length === 0 ? (
                     <div className="text-center p-10 text-gray-500 bg-white rounded-xl shadow-sm border border-dashed">
                         <p>{t.no_sales_history}</p>
@@ -604,7 +627,7 @@ const AnalyticsTab: React.FC = () => {
                                 <p className="font-bold text-gray-800">Rs. {txn.amount.toFixed(0)}</p>
                                 <div className="flex items-center justify-end gap-2 mt-1">
                                     <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded-md ${status.color}`}>{status.text}</span>
-                                    <span className="text-[10px] text-gray-400">{new Date(txn.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                    <span className="text-[10px] text-gray-400">{new Date(txn.date).toLocaleTimeString(language === 'ne' ? 'ne-NP' : 'en-US', {hour:'2-digit', minute:'2-digit'})}</span>
                                 </div>
                             </div>
                         </div>

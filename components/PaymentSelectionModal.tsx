@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
 import { X, DollarSign, QrCode, BookUser, UserPlus } from 'lucide-react';
 import { translations } from '../translations';
-import type { KhataCustomer, EditableBillItem } from '../types';
-
-type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string } | null;
+import type { KhataCustomer, EditableBillItem, PaymentContext } from '../types';
 
 interface PaymentSelectionModalProps {
     isOpen: boolean;
     onClose: () => void;
     billTotal: number;
-    context: PaymentContext;
+    context: PaymentContext | null;
     language: 'ne' | 'en';
     onFinalizeSale: (
         billItems: EditableBillItem[],

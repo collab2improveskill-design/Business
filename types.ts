@@ -118,9 +118,12 @@ export interface UnifiedTransaction {
   amount: number;
   date: string; // ISO Date string
   description: string;
-  // FIX: Added 'items' property to allow filtering by item category in AnalyticsTab.
   items: Pick<EditableBillItem, 'inventoryId' | 'quantity' | 'name'>[];
-  // For deletion purposes
   originalType: 'transaction' | 'khata';
   customerId?: string; // Only for khata transactions
 }
+
+// Centralized Context Type for Payments
+export type PaymentContext = 
+  | { type: 'home'; customerName: string } 
+  | { type: 'khata'; customerId: string; customerName: string };

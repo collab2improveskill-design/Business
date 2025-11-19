@@ -1,16 +1,13 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Zap, Loader, Trash2, DollarSign, QrCode, BookUser } from 'lucide-react';
 import { getQuickStats } from '../constants';
 import { AI_SUGGESTIONS } from '../constants';
-import type { UnifiedTransaction, EditableBillItem, InventoryItem } from '../types';
+import type { UnifiedTransaction, EditableBillItem, InventoryItem, PaymentContext } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 import { translations } from '../translations';
 import { generateId, findInventoryItem, formatDateTime } from '../utils';
 import ConfirmationModal from './ConfirmationModal';
 import { useKirana } from '../context/KiranaContext';
-
-type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
 
 interface HomeTabProps {
   onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
