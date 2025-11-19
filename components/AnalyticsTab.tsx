@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { DollarSign, QrCode, BookUser, Search, ChevronLeft, ChevronRight, Calendar, ChevronDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { DollarSign, Search, ChevronLeft, ChevronRight, Calendar, ChevronDown, ArrowUp, ArrowDown, PieChart, TrendingUp } from 'lucide-react';
 import { translations } from '../translations';
 import type { KhataCustomer, UnifiedTransaction, Transaction, InventoryItem } from '../types';
 import { formatDateTime } from '../utils';
@@ -19,6 +20,58 @@ type TooltipData = {
     transaction: UnifiedTransaction;
 };
 
+// --- Donut Chart Component ---
+const CategoryDonutChart: React.FC<{ data: { category: string; amount: number; color: string }[] }> = ({ data }) => {
+    const total = data.reduce((acc, curr) => acc + curr.amount, 0);
+    let accumulatedAngle = 0;
+
+    if (total === 0) {
+        return (
+            <div className="h-40 flex items-center justify-center text-gray-400 text-xs bg-gray-50 rounded-full aspect-square mx-auto">
+                No Data
+            </div>
+        );
+    }
+
+    return (
+        <div className="relative w-40 h-40 mx-auto">
+            <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full">
+                {data.map((slice, index) => {
+                    const percentage = slice.amount / total;
+                    const angle = percentage * 360;
+                    const largeArcFlag = percentage > 0.5 ? 1 : 0;
+                    
+                    // Calculate coordinates
+                    const startX = 50 + 50 * Math.cos((Math.PI * accumulatedAngle) / 180);
+                    const startY = 50 + 50 * Math.sin((Math.PI * accumulatedAngle) / 180);
+                    
+                    const endX = 50 + 50 * Math.cos((Math.PI * (accumulatedAngle + angle)) / 180);
+                    const endY = 50 + 50 * Math.sin((Math.PI * (accumulatedAngle + angle)) / 180);
+
+                    const pathData = `M 50 50 L ${startX} ${startY} A 50 50 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+                    
+                    accumulatedAngle += angle;
+
+                    return (
+                        <path
+                            key={slice.category}
+                            d={pathData}
+                            fill={slice.color}
+                            stroke="white"
+                            strokeWidth="2"
+                        />
+                    );
+                })}
+                <circle cx="50" cy="50" r="35" fill="white" />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center flex-col">
+                 <span className="text-xs text-gray-500 font-medium">Total</span>
+                 <span className="text-sm font-bold text-gray-800">Rs.{(total/1000).toFixed(1)}k</span>
+            </div>
+        </div>
+    );
+};
+
 // --- SalesLineChart Component ---
 const SalesLineChart: React.FC<{
     data: ChartDataPoint[];
@@ -34,12 +87,12 @@ const SalesLineChart: React.FC<{
     const innerHeight = height - margin.top - margin.bottom;
 
     if (data.length < 2) {
-        return <div style={{ height: `${height}px` }} className="flex items-center justify-center text-gray-400">Not enough data to display a chart.</div>;
+        return <div style={{ height: `${height}px` }} className="flex items-center justify-center text-gray-400 text-sm">Need more data for chart</div>;
     }
 
     const yMax = useMemo(() => {
         const maxVal = Math.max(...data.flatMap(d => [d.cash, d.qr, d.credit]), ...transactions.map(t => t.amount));
-        return maxVal === 0 ? 1000 : Math.ceil(maxVal / 1000) * 1000;
+        return maxVal === 0 ? 1000 : Math.ceil(maxVal * 1.1); // Add 10% headroom
     }, [data, transactions]);
 
     const timeStart = useMemo(() => new Date(dateRange.start).setHours(5, 0, 0, 0), [dateRange.start]);
@@ -54,9 +107,9 @@ const SalesLineChart: React.FC<{
         return Array.from({ length: ticks + 1 }, (_, i) => {
             const value = (yMax / ticks) * i;
             const y = yScale(value);
-            let label = `Rs. ${value.toFixed(0)}`;
+            let label = `${value.toFixed(0)}`;
             if (value >= 1000) {
-                label = `Rs. ${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}k`;
+                label = `${(value / 1000).toFixed(1)}k`;
             }
             return { y, label };
         });
@@ -75,6 +128,7 @@ const SalesLineChart: React.FC<{
 
     const createSmoothPath = (key: 'cash' | 'qr' | 'credit', tension = 0.2) => {
         const points = data.map(d => ({ x: xScale(new Date(d.date)), y: yScale(d[key]) }));
+        if (points.length === 0) return "";
         let d = `M ${points[0].x} ${points[0].y}`;
         for (let i = 0; i < points.length - 1; i++) {
             const p0 = i > 0 ? points[i - 1] : points[i];
@@ -91,9 +145,9 @@ const SalesLineChart: React.FC<{
     };
     
     const series: { key: 'cash' | 'qr' | 'credit'; color: string; }[] = [
-        { key: 'cash', color: '#28A745' },
-        { key: 'qr', color: '#17A2B8' },
-        { key: 'credit', color: '#DC3545' },
+        { key: 'cash', color: '#22c55e' }, // green-500
+        { key: 'qr', color: '#3b82f6' },   // blue-500
+        { key: 'credit', color: '#ef4444' }, // red-500
     ];
 
     const handleMouseOver = (e: React.MouseEvent, txn: UnifiedTransaction) => {
@@ -105,46 +159,49 @@ const SalesLineChart: React.FC<{
     };
 
     return (
-        <svg ref={svgRef} width="100%" viewBox={`0 0 ${width} ${height}`}>
+        <svg ref={svgRef} width="100%" viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
             <g transform={`translate(${margin.left},${margin.top})`}>
                 {/* Y-Axis Labels and Grid Lines */}
-                <g className="text-xs text-gray-500">
+                <g className="text-xs text-gray-400 font-mono">
                     {yAxisLabels.map(({ y, label }, i) => (
                         <g key={i}>
-                            <line x1={0} x2={innerWidth} y1={y} y2={y} stroke="#e5e7eb" strokeDasharray="2,2" />
-                            <text x={-5} y={y} dy="0.32em" textAnchor="end" fill="#6b7280" fontSize="10">
+                            <line x1={0} x2={innerWidth} y1={y} y2={y} stroke="#f3f4f6" strokeWidth="1" />
+                            <text x={-8} y={y} dy="0.32em" textAnchor="end" fontSize="9">
                                 {label}
                             </text>
                         </g>
                     ))}
                 </g>
 
-                <line x1="0" y1={innerHeight} x2={innerWidth} y2={innerHeight} stroke="black" strokeWidth="1" />
-                <g className="text-xs text-gray-500">
+                {/* X-Axis Labels */}
+                <g className="text-xs text-gray-400 font-mono">
                     {data.map((d, i) => {
                         const showLabel = isMultiDay 
                             ? (i % Math.ceil(data.length / 5) === 0) || i === data.length - 1
-                            : i % 3 === 0; // Show labels for 5am, 8am, 11am, etc.
+                            : i % 4 === 0; // Show labels for 5am, 9am, etc.
                         if (!showLabel) return null;
                         
                         const date = new Date(d.date);
                         const label = isMultiDay
                             ? date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                            : date.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }).toLowerCase();
+                            : date.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }).replace(':00', '').toLowerCase();
 
                         return (
-                            <text key={i} x={xScale(date)} y={innerHeight + 15} textAnchor="middle" fill="#6b7280" fontSize="10">
+                            <text key={i} x={xScale(date)} y={innerHeight + 20} textAnchor="middle" fontSize="9">
                                 {label}
                             </text>
                         );
                     })}
                 </g>
+
                 {series.map(s => (
                     <g key={s.key}>
-                        <path d={`${createSmoothPath(s.key)} L ${xScale(new Date(data[data.length-1].date))},${innerHeight} L ${xScale(new Date(data[0].date))},${innerHeight} Z`} fill={s.color} fillOpacity="0.1" />
-                        <path d={createSmoothPath(s.key)} fill="none" stroke={s.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={`${createSmoothPath(s.key)} L ${xScale(new Date(data[data.length-1].date))},${innerHeight} L ${xScale(new Date(data[0].date))},${innerHeight} Z`} fill={s.color} fillOpacity="0.05" />
+                        <path d={createSmoothPath(s.key)} fill="none" stroke={s.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </g>
                 ))}
+                
+                 {/* Transaction Dots */}
                  {transactions.map(txn => {
                     const seriesColor = series.find(s => s.key === txn.type)?.color || '#808080';
                     const txnDate = new Date(txn.date);
@@ -153,13 +210,13 @@ const SalesLineChart: React.FC<{
                             key={txn.id}
                             cx={xScale(txnDate)}
                             cy={yScale(txn.amount)}
-                            r="3.5"
-                            fill={seriesColor}
-                            stroke="white"
-                            strokeWidth="1.5"
+                            r="3"
+                            fill="white"
+                            stroke={seriesColor}
+                            strokeWidth="2"
                             onMouseOver={(e) => handleMouseOver(e, txn)}
                             onMouseOut={() => onDotHover(null)}
-                            className="cursor-pointer"
+                            className="cursor-pointer hover:r-4 transition-all"
                         />
                     );
                 })}
@@ -224,12 +281,47 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
             const txnDate = new Date(txn.date);
             if (!(txnDate >= startOfDay && txnDate <= endOfDay)) return false;
             if (paymentTypeFilter !== 'all' && txn.type !== paymentTypeFilter) return false;
-            if (selectedCategory !== 'all' && !txn.items.some(item => item.inventoryId && inventoryCategoryMap.get(item.inventoryId) === selectedCategory)) return false;
+            
+            // Category Filter Logic
+            if (selectedCategory !== 'all') {
+                const hasCategory = txn.items.some(item => item.inventoryId && inventoryCategoryMap.get(item.inventoryId) === selectedCategory);
+                if (!hasCategory && txn.items.length > 0) return false; // Strict filtering if items exist
+            }
+            
             if (searchTerm && !(txn.customerName.toLowerCase().includes(lowercasedTerm) || txn.description.toLowerCase().includes(lowercasedTerm))) return false;
             return true;
         });
     }, [unifiedTransactions, dateRange, paymentTypeFilter, selectedCategory, searchTerm, inventoryCategoryMap]);
     
+    // --- Category Breakdown Logic ---
+    const categoryData = useMemo(() => {
+        const breakdown: Record<string, number> = {};
+        filteredTransactions.forEach(txn => {
+            if (txn.items.length === 0) {
+                breakdown['Uncategorized'] = (breakdown['Uncategorized'] || 0) + txn.amount;
+            } else {
+                // Proportional split if single transaction has multiple items is hard without item-level price in txn history
+                // Simplification: Assign full amount to first item's category or split equally
+                // Better approach for V2: txn.items should have price at time of sale. 
+                // Current Fallback: Distribute total amount equally among items
+                const splitAmount = txn.amount / txn.items.length;
+                txn.items.forEach(item => {
+                    const cat = (item.inventoryId ? inventoryCategoryMap.get(item.inventoryId) : 'Other') || 'Other';
+                    breakdown[cat] = (breakdown[cat] || 0) + splitAmount;
+                });
+            }
+        });
+
+        const colors = ['#8b5cf6', '#f43f5e', '#10b981', '#f59e0b', '#3b82f6', '#6366f1', '#ec4899'];
+        return Object.entries(breakdown)
+            .map(([category, amount], index) => ({
+                category,
+                amount,
+                color: colors[index % colors.length]
+            }))
+            .sort((a, b) => b.amount - a.amount);
+    }, [filteredTransactions, inventoryCategoryMap]);
+
      const { dailyInsight } = useMemo(() => {
         const today = new Date();
         const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
@@ -312,9 +404,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         start.setHours(0, 0, 0, 0);
 
         switch (preset) {
-            case 'today':
-                // Already set
-                break;
+            case 'today': break;
             case 'yesterday':
                 start.setDate(start.getDate() - 1);
                 end.setDate(end.getDate() - 1);
@@ -345,9 +435,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         const newEndDate = new Date(dateRange.end);
     
         const diffTime = newEndDate.getTime() - newStartDate.getTime();
-        // Use Math.round to handle DST cases where a day might not be exactly 24h.
         const durationDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    
         const offset = direction === 'next' ? durationDays : -durationDays;
         
         newStartDate.setDate(newStartDate.getDate() + offset);
@@ -356,27 +444,19 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         newStartDate.setHours(0, 0, 0, 0);
         newEndDate.setHours(23, 59, 59, 999);
         
-        // For single day ranges, ensure end date matches start date after offset.
-        if (durationDays === 1) {
-            newEndDate.setDate(newStartDate.getDate());
-        }
+        if (durationDays === 1) newEndDate.setDate(newStartDate.getDate());
     
         setDateRange({ start: newStartDate, end: newEndDate });
     
-        // Update Label Logic
         const today = new Date();
         const yesterday = new Date();
         yesterday.setDate(today.getDate() - 1);
     
-        if (durationDays === 1) { // If it was a single day view
-            if (dateToYMD(newStartDate) === dateToYMD(today)) {
-                setDateRangeLabel('Today');
-            } else if (dateToYMD(newStartDate) === dateToYMD(yesterday)) {
-                setDateRangeLabel('Yesterday');
-            } else {
-                setDateRangeLabel(newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
-            }
-        } else { // If it was a multi-day view
+        if (durationDays === 1) { 
+            if (dateToYMD(newStartDate) === dateToYMD(today)) setDateRangeLabel('Today');
+            else if (dateToYMD(newStartDate) === dateToYMD(yesterday)) setDateRangeLabel('Yesterday');
+            else setDateRangeLabel(newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+        } else {
             const startStr = newStartDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric' });
             const endStr = newEndDate.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             setDateRangeLabel(`${startStr} - ${endStr}`);
@@ -408,15 +488,11 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         <div className="space-y-4 relative">
             <ConfirmationModal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} onConfirm={handleDelete} title={t.confirm_delete_txn_title} message={t.confirm_delete_txn_desc} language={language} />
 
-            {new Date().getHours() >= 20 && dailyInsight && (
-                <div className={`p-3 rounded-xl flex items-center gap-3 shadow-sm border ${dailyInsight.isPositive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                    {dailyInsight.isPositive ? <ArrowUp className="w-5 h-5 text-green-600"/> : <ArrowDown className="w-5 h-5 text-red-600"/>}
-                    <p className={`text-sm font-medium ${dailyInsight.isPositive ? 'text-green-800' : 'text-red-800'}`}>
-                        Great job! Sales are <span className="font-bold">{Math.abs(dailyInsight.percentage)}% {dailyInsight.isPositive ? 'higher' : 'lower'}</span> than yesterday.
-                    </p>
-                </div>
-            )}
+            <header>
+                <h1 className="text-2xl font-bold text-gray-800">{t.analytics_tab}</h1>
+            </header>
 
+            {/* Filters */}
             <div className="bg-white rounded-xl p-3 shadow-sm border space-y-3">
                 <div className="flex items-center gap-2">
                      <div className="relative flex-1" ref={dateFilterRef}>
@@ -433,10 +509,6 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
                                 {['Today', 'Yesterday', 'Last 7 days', 'Last 14 days', 'Last 28 days'].map((label, i) => (
                                      <button key={label} onClick={() => setDatePreset(['today', 'yesterday', '7d', '14d', '28d'][i] as any)} className="w-full text-left px-3 py-2 text-sm rounded-md hover:bg-gray-100">{label}</button>
                                  ))}
-                                 <div className="border-t my-1"></div>
-                                 <button className="w-full text-left px-3 py-2 text-sm rounded-md hover:bg-gray-100 flex items-center gap-2 text-gray-600">
-                                    <Calendar className="w-4 h-4" /> Choose date range
-                                 </button>
                              </div>
                          )}
                     </div>
@@ -447,10 +519,6 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
                         <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                     </div>
                 </div>
-                <div className="relative">
-                    <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input type="text" placeholder={`${t.search_items} or customer`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/>
-                </div>
                 <div className="flex items-center justify-between bg-gray-50 rounded-lg p-1">
                     {paymentTypeFilters.map(filter => (
                         <button key={filter.id} onClick={() => setPaymentTypeFilter(filter.id as any)} className={`flex-1 py-1.5 px-2 text-sm font-semibold rounded-md transition-colors ${paymentTypeFilter === filter.id ? 'bg-purple-600 text-white shadow' : 'text-gray-600 hover:bg-gray-200'}`}>
@@ -459,60 +527,97 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
                     ))}
                 </div>
             </div>
+
+            {/* Daily Insight */}
+            {dailyInsight && (
+                <div className={`p-3 rounded-xl flex items-center gap-3 shadow-sm border ${dailyInsight.isPositive ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    {dailyInsight.isPositive ? <TrendingUp className="w-5 h-5 text-green-600"/> : <ArrowDown className="w-5 h-5 text-red-600"/>}
+                    <p className={`text-sm font-medium ${dailyInsight.isPositive ? 'text-green-800' : 'text-red-800'}`}>
+                        Sales are <span className="font-bold">{Math.abs(dailyInsight.percentage)}% {dailyInsight.isPositive ? 'higher' : 'lower'}</span> than yesterday.
+                    </p>
+                </div>
+            )}
            
+            {/* Sales Graph */}
             <div className="bg-white rounded-xl p-4 shadow-sm text-gray-800 border relative">
+                <h3 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4"/> Sales Trend</h3>
                 <SalesLineChart data={chartData} transactions={filteredTransactions} dateRange={dateRange} onDotHover={setTooltipData} />
                  {tooltipData?.visible && (
-                    <div className="absolute bg-black/80 text-white p-2 rounded-lg text-xs shadow-lg pointer-events-none" style={{ left: `${tooltipData.x}px`, top: `${tooltipData.y}px`, transform: 'translate(-50%, -110%)' }}>
-                        <p className="font-bold">{tooltipData.transaction.customerName} - रू{tooltipData.transaction.amount.toFixed(2)}</p>
-                        <p className="text-white/80">{tooltipData.transaction.description}</p>
-                        <p className="text-white/60">{new Date(tooltipData.transaction.date).toLocaleTimeString(language, { hour: 'numeric', minute: '2-digit' })}</p>
+                    <div className="absolute bg-gray-900 text-white p-3 rounded-lg text-xs shadow-xl pointer-events-none z-20 w-48" style={{ left: `${tooltipData.x}px`, top: `${tooltipData.y}px`, transform: 'translate(-50%, -110%)' }}>
+                        <div className="flex justify-between items-start mb-1">
+                            <span className="font-bold text-sm text-purple-200">{tooltipData.transaction.customerName}</span>
+                            <span className="font-mono text-green-400">Rs.{tooltipData.transaction.amount.toFixed(0)}</span>
+                        </div>
+                        <p className="text-gray-300 line-clamp-2 mb-1">{tooltipData.transaction.description}</p>
+                        <p className="text-gray-500 text-[10px]">{new Date(tooltipData.transaction.date).toLocaleTimeString(language, { hour: 'numeric', minute: '2-digit' })}</p>
                     </div>
                  )}
-                 <div className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="flex justify-between items-center text-center px-2">
-                        <div>
-                            <div className="flex items-center justify-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-green-500"></div><span className="text-xs text-gray-500">Cash</span></div>
-                            <p className="font-bold text-base text-gray-800 mt-1">रू{totals.cash.toFixed(0)}</p>
-                        </div>
-                        <div>
-                           <div className="flex items-center justify-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-sky-500"></div><span className="text-xs text-gray-500">QR/Online</span></div>
-                            <p className="font-bold text-base text-gray-800 mt-1">रू{totals.qr.toFixed(0)}</p>
-                        </div>
-                        <div>
-                            <div className="flex items-center justify-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-red-500"></div><span className="text-xs text-gray-500">Credit</span></div>
-                            <p className="font-bold text-base text-gray-800 mt-1">रू{totals.credit.toFixed(0)}</p>
-                        </div>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-2">
+                 <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-center">
+                     <p className="text-xs text-green-600 font-medium mb-1">Cash</p>
+                     <p className="text-lg font-bold text-green-700">Rs.{totals.cash.toFixed(0)}</p>
+                 </div>
+                 <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-center">
+                     <p className="text-xs text-blue-600 font-medium mb-1">QR/Online</p>
+                     <p className="text-lg font-bold text-blue-700">Rs.{totals.qr.toFixed(0)}</p>
+                 </div>
+                 <div className="bg-red-50 p-3 rounded-lg border border-red-100 text-center">
+                     <p className="text-xs text-red-600 font-medium mb-1">Credit</p>
+                     <p className="text-lg font-bold text-red-700">Rs.{totals.credit.toFixed(0)}</p>
+                 </div>
+            </div>
+
+            {/* Category Breakdown */}
+            <div className="bg-white rounded-xl p-4 shadow-sm border">
+                <h3 className="text-sm font-bold text-gray-500 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4"/> Category Distribution</h3>
+                <div className="flex items-center gap-4">
+                    <div className="flex-1">
+                        <CategoryDonutChart data={categoryData} />
                     </div>
-                    <div className="bg-gray-50 p-3 rounded-lg flex items-center justify-between mt-4 border">
-                         <span className="text-sm font-bold text-gray-800">Total Sales</span>
-                         <p className="text-xl font-extrabold text-purple-600">रू {totals.all.toFixed(2)}</p>
+                    <div className="flex-1 space-y-2 max-h-40 overflow-y-auto">
+                        {categoryData.map(cat => (
+                            <div key={cat.category} className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-1.5">
+                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                                    <span className="text-gray-600">{cat.category}</span>
+                                </div>
+                                <span className="font-medium">Rs.{cat.amount.toFixed(0)}</span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
 
-            <div className="space-y-2">
+            {/* Transaction List */}
+            <div className="space-y-2 pb-6">
+                <h3 className="text-sm font-bold text-gray-500 mb-2 ml-1">Detailed Transactions</h3>
                 {filteredTransactions.length === 0 ? (
-                    <div className="text-center p-10 text-gray-500 bg-white rounded-xl shadow-sm border">
+                    <div className="text-center p-10 text-gray-500 bg-white rounded-xl shadow-sm border border-dashed">
                         <p>{t.no_sales_history}</p>
                     </div>
                 ) : (
                     filteredTransactions.map(txn => {
                         const status = paymentStatusInfo[txn.type];
                         return (
-                        <div key={`${txn.originalType}-${txn.id}`} className="group bg-white rounded-xl p-3 shadow-sm flex items-center justify-between border">
+                        <div key={`${txn.originalType}-${txn.id}`} className="group bg-white rounded-xl p-3 shadow-sm flex items-center justify-between border hover:border-purple-200 transition-colors cursor-default">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-bold text-lg shrink-0">
+                                <div className="w-10 h-10 bg-gray-50 text-gray-600 rounded-full flex items-center justify-center font-bold text-lg shrink-0 border">
                                     {txn.customerName.charAt(0)}
                                 </div>
-                                <div className="flex-1">
-                                    <p className="font-bold text-sm text-gray-800">{txn.customerName}</p>
-                                    <p className="text-xs text-gray-500 truncate max-w-xs">{formatDateTime(txn.date, language)}</p>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-sm text-gray-800 truncate">{txn.customerName}</p>
+                                    <p className="text-xs text-gray-500 truncate max-w-[150px]">{txn.description || 'No description'}</p>
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="font-bold text-gray-800">रू {txn.amount.toFixed(2)}</p>
-                                <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${status.color} mt-1 inline-block`}>{status.text}</span>
+                                <p className="font-bold text-gray-800">Rs. {txn.amount.toFixed(0)}</p>
+                                <div className="flex items-center justify-end gap-2 mt-1">
+                                    <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded-md ${status.color}`}>{status.text}</span>
+                                    <span className="text-[10px] text-gray-400">{new Date(txn.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                </div>
                             </div>
                         </div>
                     )})
