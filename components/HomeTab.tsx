@@ -1,23 +1,19 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Zap, Loader, Trash2, DollarSign, QrCode, BookUser } from 'lucide-react';
 import { getQuickStats } from '../constants';
 import { AI_SUGGESTIONS } from '../constants';
-import type { UnifiedTransaction, ParsedBill, EditableBillItem, InventoryItem } from '../types';
+import type { UnifiedTransaction, EditableBillItem, InventoryItem } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
 import { translations } from '../translations';
 import { generateId, findInventoryItem, formatDateTime } from '../utils';
 import ConfirmationModal from './ConfirmationModal';
+import { useKirana } from '../context/KiranaContext';
 
 type PaymentContext = { type: 'home'; customerName: string } | { type: 'khata'; customerId: string; customerName: string };
 
 interface HomeTabProps {
-  recentSales: UnifiedTransaction[];
-  language: 'ne' | 'en';
-  toggleLanguage: () => void;
-  inventory: InventoryItem[];
   onInitiatePayment: (billItems: EditableBillItem[], totalAmount: number, context: PaymentContext) => void;
-  onDeleteSale: (transaction: UnifiedTransaction) => void;
-  lowStockItems: InventoryItem[];
   onNavigateToInventory: (itemId: string) => void;
   onQuickAddStock: (item: InventoryItem) => void;
 }
@@ -25,7 +21,13 @@ interface HomeTabProps {
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
-const HomeTab: React.FC<HomeTabProps> = ({ recentSales, language, toggleLanguage, inventory, onInitiatePayment, onDeleteSale, lowStockItems, onNavigateToInventory, onQuickAddStock }) => {
+const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInventory, onQuickAddStock }) => {
+  const { 
+      language, toggleLanguage, 
+      inventory, 
+      unifiedRecentTransactions, deleteTransaction, deleteKhataTransaction, lowStockItems 
+  } = useKirana();
+
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -55,11 +57,11 @@ const HomeTab: React.FC<HomeTabProps> = ({ recentSales, language, toggleLanguage
           const inventoryItem = findInventoryItem(item.name, inventory);
           return {
               id: generateId(),
-              inventoryId: inventoryItem?.id, // Link to inventory
+              inventoryId: inventoryItem?.id,
               name: inventoryItem?.name || item.name || '',
               quantity: String(item.quantity || 1),
               unit: inventoryItem?.unit || item.unit || '',
-              price: String(inventoryItem?.price || item.price || 0), // Use inventory selling price
+              price: String(inventoryItem?.price || item.price || 0),
           };
       });
       
@@ -158,13 +160,16 @@ const HomeTab: React.FC<HomeTabProps> = ({ recentSales, language, toggleLanguage
     if (billItems.length === 0) return;
     setApiError(null);
     onInitiatePayment(billItems, totalBillAmount, { type: 'home', customerName: customerName || t.guest_customer });
-    // Clear bill after initiating payment, assuming success
     setBillItems([]);
     setCustomerName('');
   };
   
   const handleCancelTransaction = (transaction: UnifiedTransaction) => {
-    onDeleteSale(transaction);
+    if (transaction.originalType === 'transaction') {
+        deleteTransaction(transaction.id);
+    } else if (transaction.originalType === 'khata' && transaction.customerId) {
+        deleteKhataTransaction(transaction.customerId, transaction.id);
+    }
     setShowCancelConfirm(null);
   };
   
@@ -342,7 +347,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ recentSales, language, toggleLanguage
           <button className="text-sm text-purple-600 font-medium">{t.view_all}</button>
         </div>
         <div className="space-y-3">
-          {lowStockItems.length > 0 ? lowStockItems.map((item) => (
+          {lowStockItems.length > 0 ? lowStockItems.slice(0,3).map((item) => (
             <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
               <div
                 onClick={() => onNavigateToInventory(item.id)}
@@ -370,7 +375,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ recentSales, language, toggleLanguage
           <button className="text-sm text-purple-600 font-medium">{t.view_all}</button>
         </div>
         <div className="space-y-1">
-          {recentSales.length > 0 ? recentSales.map((txn) => {
+          {unifiedRecentTransactions.length > 0 ? unifiedRecentTransactions.map((txn) => {
             const status = paymentStatusInfo[txn.type];
             return (
                 <div key={`${txn.originalType}-${txn.id}`} className="group flex items-center justify-between p-3 border-b last:border-0">

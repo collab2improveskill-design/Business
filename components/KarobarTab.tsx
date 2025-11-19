@@ -1,4 +1,4 @@
-// v2.2 - Refactored to focus solely on Khata management. Sales history moved to Analytics tab.
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle } from 'lucide-react';
 import { translations } from '../translations';
@@ -7,18 +7,13 @@ import { parseBillingFromVoice } from '../services/geminiService';
 import { generateId, findInventoryItem, formatDateTime } from '../utils';
 import SelectKhataScreen from './SelectKhataScreen';
 import KhataPaymentModal from './KhataPaymentModal';
+import { useKirana } from '../context/KiranaContext';
 
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
 interface KarobarTabProps {
-    language: 'ne' | 'en';
-    inventory: InventoryItem[];
-    khataCustomers: KhataCustomer[];
-    onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
     onOpenCreateKhata: () => void;
-    onAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
-    onKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr') => { success: boolean, error?: string };
 }
 
 // --- KhataDetailModal ---
@@ -26,13 +21,9 @@ const KhataDetailModal: React.FC<{
     customer: KhataCustomer | null;
     isOpen: boolean;
     onClose: () => void;
-    language: 'ne' | 'en';
-    inventory: InventoryItem[];
-    onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
-    onAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
-    onKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr') => { success: boolean, error?: string };
     onShowSuccess: (message: string) => void;
-}> = ({ customer, isOpen, onClose, language, inventory, onDeleteKhataTransaction, onAddItemsToKhata, onKhataSettlement, onShowSuccess }) => {
+}> = ({ customer, isOpen, onClose, onShowSuccess }) => {
+    const { language, inventory, deleteKhataTransaction, handleAddItemsToKhata, handleKhataSettlement } = useKirana();
     const t = translations[language];
     
     const [isListening, setIsListening] = useState(false);
@@ -127,7 +118,7 @@ const KhataDetailModal: React.FC<{
     
     const handleAddItems = () => {
         if (!customer || todaysBillItems.length === 0) return;
-        const result = onAddItemsToKhata(customer.id, todaysBillItems);
+        const result = handleAddItemsToKhata(customer.id, todaysBillItems);
         if(result.success) {
             setTodaysBillItems([]);
         } else {
@@ -137,7 +128,7 @@ const KhataDetailModal: React.FC<{
     
     const handleQuickCash = () => {
         if (!customer || grandTotal <= 0) return;
-        const result = onKhataSettlement(customer.id, todaysBillItems, grandTotal, 'cash');
+        const result = handleKhataSettlement(customer.id, todaysBillItems, grandTotal, 'cash');
         if (result.success) {
             onShowSuccess(t.quick_cash_success.replace('{amount}', grandTotal.toFixed(2)).replace('{name}', customer.name));
             onClose(); // Close the detail modal
@@ -148,7 +139,7 @@ const KhataDetailModal: React.FC<{
 
     const handleConfirmPayment = (amountPaid: number, paymentMethod: 'cash' | 'qr') => {
         if(!customer) return;
-        const result = onKhataSettlement(customer.id, todaysBillItems, amountPaid, paymentMethod);
+        const result = handleKhataSettlement(customer.id, todaysBillItems, amountPaid, paymentMethod);
         if(result.success) {
             setIsPaymentModalOpen(false);
             onClose();
@@ -221,7 +212,7 @@ const KhataDetailModal: React.FC<{
                                     <p className={`font-bold text-sm ${txn.type === 'debit' ? 'text-red-600' : 'text-green-700'}`}>
                                         {txn.type === 'debit' ? '+' : '-'} रू {txn.amount.toFixed(2)}
                                     </p>
-                                    <button onClick={() => onDeleteKhataTransaction(customer.id, txn.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity">
+                                    <button onClick={() => deleteKhataTransaction(customer.id, txn.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity">
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                 </div>
@@ -288,11 +279,10 @@ const KhataDetailModal: React.FC<{
 
 // --- KhataListView ---
 const KhataListView: React.FC<{
-    language: 'ne' | 'en';
-    customers: KhataCustomer[];
     onSelectCustomer: (customer: KhataCustomer) => void;
     onOpenSelectKhata: () => void;
-}> = ({ language, customers, onSelectCustomer, onOpenSelectKhata }) => {
+}> = ({ onSelectCustomer, onOpenSelectKhata }) => {
+    const { language, khataCustomers } = useKirana();
     const t = translations[language];
 
     const calculateBalance = (customer: KhataCustomer) => {
@@ -303,13 +293,13 @@ const KhataListView: React.FC<{
     
     return (
         <div className="relative pb-20">
-            {customers.length === 0 ? (
+            {khataCustomers.length === 0 ? (
                  <div className="text-center p-16 text-gray-500 bg-white rounded-xl shadow-sm">
                     <p>{t.no_khatas}</p>
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {customers.map(customer => {
+                    {khataCustomers.map(customer => {
                         const balance = calculateBalance(customer);
                         return (
                              <div key={customer.id} onClick={() => onSelectCustomer(customer)} className="bg-white rounded-xl p-4 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors">
@@ -338,8 +328,8 @@ const KhataListView: React.FC<{
     );
 };
 
-const KarobarTab: React.FC<KarobarTabProps> = (props) => {
-    const { language, khataCustomers, onOpenCreateKhata } = props;
+const KarobarTab: React.FC<KarobarTabProps> = ({ onOpenCreateKhata }) => {
+    const { language, khataCustomers } = useKirana();
     const [selectedCustomer, setSelectedCustomer] = useState<KhataCustomer | null>(null);
     const [isSelectingKhata, setIsSelectingKhata] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
@@ -365,7 +355,6 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
         onOpenCreateKhata();
     };
     
-    // This is needed to get real-time updates in the detail modal
     const currentlySelectedCustomer = useMemo(() => {
         if (!selectedCustomer) return null;
         return khataCustomers.find(c => c.id === selectedCustomer.id) || null;
@@ -393,18 +382,11 @@ const KarobarTab: React.FC<KarobarTabProps> = (props) => {
                 isOpen={!!selectedCustomer}
                 onClose={() => setSelectedCustomer(null)}
                 customer={currentlySelectedCustomer}
-                language={props.language}
-                inventory={props.inventory}
-                onDeleteKhataTransaction={props.onDeleteKhataTransaction}
-                onAddItemsToKhata={props.onAddItemsToKhata}
-                onKhataSettlement={props.onKhataSettlement}
                 onShowSuccess={setSuccessMessage}
             />
             <h1 className="text-2xl font-bold text-gray-800">{t.karobar_tab}</h1>
             
             <KhataListView 
-                language={language}
-                customers={khataCustomers}
                 onSelectCustomer={handleSelectCustomer}
                 onOpenSelectKhata={handleOpenSelectKhata}
             />

@@ -2,9 +2,10 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { DollarSign, Search, ChevronLeft, ChevronRight, Calendar, ChevronDown, ArrowUp, ArrowDown, PieChart, TrendingUp } from 'lucide-react';
 import { translations } from '../translations';
-import type { KhataCustomer, UnifiedTransaction, Transaction, InventoryItem } from '../types';
+import type { UnifiedTransaction } from '../types';
 import { formatDateTime } from '../utils';
 import ConfirmationModal from './ConfirmationModal';
+import { useKirana } from '../context/KiranaContext';
 
 type ChartDataPoint = {
     date: string;
@@ -227,23 +228,16 @@ const SalesLineChart: React.FC<{
 
 const dateToYMD = (date: Date) => date.toISOString().split('T')[0];
 
-interface AnalyticsTabProps {
-    language: 'ne' | 'en';
-    inventory: InventoryItem[];
-    transactions: Transaction[];
-    khataCustomers: KhataCustomer[];
-    onDeleteTransaction: (transactionId: string) => void;
-    onDeleteKhataTransaction: (customerId: string, transactionId: string) => void;
-}
-
-const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transactions, khataCustomers, onDeleteTransaction, onDeleteKhataTransaction }) => {
+const AnalyticsTab: React.FC = () => {
+    const { language, inventory, deleteTransaction, deleteKhataTransaction, transactions, khataCustomers } = useKirana();
+    
     const t = translations[language];
     const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>({ start: new Date(), end: new Date() });
     const [dateRangeLabel, setDateRangeLabel] = useState('Today');
     const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);
     const dateFilterRef = useRef<HTMLDivElement>(null);
 
-    const [paymentTypeFilter, setPaymentTypeFilter] = useState<'all' | 'cash' | 'qr' | 'credit'>('all');
+    const [paymentTypeFilters, setPaymentTypeFilter] = useState<'all' | 'cash' | 'qr' | 'credit'>('all');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [confirmDelete, setConfirmDelete] = useState<UnifiedTransaction | null>(null);
@@ -280,30 +274,24 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
         return unifiedTransactions.filter(txn => {
             const txnDate = new Date(txn.date);
             if (!(txnDate >= startOfDay && txnDate <= endOfDay)) return false;
-            if (paymentTypeFilter !== 'all' && txn.type !== paymentTypeFilter) return false;
+            if (paymentTypeFilters !== 'all' && txn.type !== paymentTypeFilters) return false;
             
-            // Category Filter Logic
             if (selectedCategory !== 'all') {
                 const hasCategory = txn.items.some(item => item.inventoryId && inventoryCategoryMap.get(item.inventoryId) === selectedCategory);
-                if (!hasCategory && txn.items.length > 0) return false; // Strict filtering if items exist
+                if (!hasCategory && txn.items.length > 0) return false; 
             }
             
             if (searchTerm && !(txn.customerName.toLowerCase().includes(lowercasedTerm) || txn.description.toLowerCase().includes(lowercasedTerm))) return false;
             return true;
         });
-    }, [unifiedTransactions, dateRange, paymentTypeFilter, selectedCategory, searchTerm, inventoryCategoryMap]);
+    }, [unifiedTransactions, dateRange, paymentTypeFilters, selectedCategory, searchTerm, inventoryCategoryMap]);
     
-    // --- Category Breakdown Logic ---
     const categoryData = useMemo(() => {
         const breakdown: Record<string, number> = {};
         filteredTransactions.forEach(txn => {
             if (txn.items.length === 0) {
                 breakdown['Uncategorized'] = (breakdown['Uncategorized'] || 0) + txn.amount;
             } else {
-                // Proportional split if single transaction has multiple items is hard without item-level price in txn history
-                // Simplification: Assign full amount to first item's category or split equally
-                // Better approach for V2: txn.items should have price at time of sale. 
-                // Current Fallback: Distribute total amount equally among items
                 const splitAmount = txn.amount / txn.items.length;
                 txn.items.forEach(item => {
                     const cat = (item.inventoryId ? inventoryCategoryMap.get(item.inventoryId) : 'Other') || 'Other';
@@ -359,7 +347,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
 
         const diffDays = Math.ceil((dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24));
 
-        if (diffDays <= 1) { // HOURLY AGGREGATION
+        if (diffDays <= 1) { 
             const buckets = Array.from({ length: 18 }, (_, i) => ({
                 date: new Date(dateRange.start).setHours(5 + i, 0, 0, 0),
                 cash: 0, qr: 0, credit: 0,
@@ -373,7 +361,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
             });
             const chartDataPoints = buckets.map(b => ({ ...b, date: new Date(b.date).toISOString() }));
             return { totals, chartData: chartDataPoints };
-        } else { // DAILY AGGREGATION
+        } else { 
             const aggregated: Map<string, { cash: number; qr: number; credit: number }> = new Map();
             for (let i = 0; i < diffDays; i++) {
                 const d = new Date(dateRange.start);
@@ -466,12 +454,12 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
 
     const handleDelete = () => {
         if (!confirmDelete) return;
-        if (confirmDelete.originalType === 'transaction') onDeleteTransaction(confirmDelete.id);
-        else if (confirmDelete.originalType === 'khata' && confirmDelete.customerId) onDeleteKhataTransaction(confirmDelete.customerId, confirmDelete.id);
+        if (confirmDelete.originalType === 'transaction') deleteTransaction(confirmDelete.id);
+        else if (confirmDelete.originalType === 'khata' && confirmDelete.customerId) deleteKhataTransaction(confirmDelete.customerId, confirmDelete.id);
         setConfirmDelete(null);
     };
 
-    const paymentTypeFilters = [
+    const paymentFilters = [
         { id: 'all', label: t.filter_all },
         { id: 'cash', label: t.filter_cash },
         { id: 'qr', label: t.filter_qr },
@@ -520,8 +508,8 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ language, inventory, transa
                     </div>
                 </div>
                 <div className="flex items-center justify-between bg-gray-50 rounded-lg p-1">
-                    {paymentTypeFilters.map(filter => (
-                        <button key={filter.id} onClick={() => setPaymentTypeFilter(filter.id as any)} className={`flex-1 py-1.5 px-2 text-sm font-semibold rounded-md transition-colors ${paymentTypeFilter === filter.id ? 'bg-purple-600 text-white shadow' : 'text-gray-600 hover:bg-gray-200'}`}>
+                    {paymentFilters.map(filter => (
+                        <button key={filter.id} onClick={() => setPaymentTypeFilter(filter.id as any)} className={`flex-1 py-1.5 px-2 text-sm font-semibold rounded-md transition-colors ${paymentTypeFilters === filter.id ? 'bg-purple-600 text-white shadow' : 'text-gray-600 hover:bg-gray-200'}`}>
                             {filter.label}
                         </button>
                     ))}

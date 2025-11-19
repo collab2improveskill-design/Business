@@ -6,13 +6,9 @@ import { translations } from '../translations';
 import { parseInventoryFromImage } from '../services/geminiService';
 import { CATEGORIES } from '../constants';
 import { generateId } from '../utils';
+import { useKirana } from '../context/KiranaContext';
+import { compressAndConvertToBase64 } from '../utils/imageCompression';
 
-
-interface InventoryTabProps {
-  language: 'ne' | 'en';
-  inventory: InventoryItem[];
-  setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
-}
 
 // A new type for items being reviewed after a scan
 type ReviewableItem = ParsedBillItemFromImage & {
@@ -21,16 +17,6 @@ type ReviewableItem = ParsedBillItemFromImage & {
     category: string;
     lowStockThreshold: number;
     isSelected: boolean;
-};
-
-
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = error => reject(error);
-  });
 };
 
 const formatDate = (dateString: string, lang: 'ne' | 'en') => {
@@ -85,7 +71,7 @@ const AddItemChoiceModal: React.FC<{ isOpen: boolean, onClose: () => void, onSca
 };
 
 
-// --- Price History Chart ---
+// --- PriceHistoryChart ---
 const PriceHistoryChart: React.FC<{ data: { price: number; date: string }[], language: 'ne' | 'en' }> = ({ data, language }) => {
     const width = 300;
     const height = 150;
@@ -116,20 +102,15 @@ const PriceHistoryChart: React.FC<{ data: { price: number; date: string }[], lan
     return (
         <svg width={width} height={height} className="w-full">
             <g transform={`translate(${margin.left},${margin.top})`}>
-                {/* Y-Axis Grid Lines */}
                 {[0, 0.25, 0.5, 0.75, 1].map(tick => (
                     <line key={tick} x1={0} x2={innerWidth} y1={innerHeight * tick} y2={innerHeight * tick} stroke="#e5e7eb" strokeWidth="0.5" />
                 ))}
-                {/* Path */}
                 <path d={linePath} fill="none" stroke="#8b5cf6" strokeWidth="2" />
-                {/* Points */}
                 {parsedData.map((d, i) => (
                     <circle key={i} cx={xScale(d.date)} cy={yScale(d.price)} r="3" fill="#8b5cf6" />
                 ))}
-                {/* Y-Axis Labels */}
                 <text x={-5} y={0} dy="0.32em" fontSize="10" textAnchor="end" fill="#6b7280">{maxPrice.toFixed(0)}</text>
                 <text x={-5} y={innerHeight} dy="0.32em" fontSize="10" textAnchor="end" fill="#6b7280">{minPrice.toFixed(0)}</text>
-                {/* X-Axis Labels */}
                 <text x={xScale(minDate)} y={innerHeight + 15} fontSize="10" textAnchor="middle" fill="#6b7280">{new Date(minDate).toLocaleDateString(language, {month: 'short', day: '2-digit'})}</text>
                 {maxDate.getTime() !== minDate.getTime() && <text x={xScale(maxDate)} y={innerHeight + 15} fontSize="10" textAnchor="middle" fill="#6b7280">{new Date(maxDate).toLocaleDateString(language, {month: 'short', day: '2-digit'})}</text>}
             </g>
@@ -267,7 +248,8 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
         setIsProcessing(true);
         setError(null);
         try {
-            const base64 = await fileToBase64(imageFile);
+            // Use the new compression utility
+            const base64 = await compressAndConvertToBase64(imageFile);
             const results = await parseInventoryFromImage(base64, language);
             const itemsToReview: ReviewableItem[] = results.map(pItem => {
                 const existing = inventory.find(i => i.name.toLowerCase() === pItem.name.toLowerCase());
@@ -403,7 +385,8 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
 
 
 // --- Main InventoryTab Component ---
-const InventoryTab: React.FC<InventoryTabProps> = ({ language, inventory, setInventory }) => {
+const InventoryTab: React.FC = () => {
+    const { language, inventory, setInventory } = useKirana();
     const [searchTerm, setSearchTerm] = useState('');
     const [modal, setModal] = useState<'scan' | 'manual' | 'history' | 'choice' | null>(null);
     const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
