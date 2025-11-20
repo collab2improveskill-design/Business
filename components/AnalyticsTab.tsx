@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, DollarSign, CreditCard, BookOpen, ArrowUp, Wallet, Loader2, X, AlertCircle, Info, Table, Eye, EyeOff } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp } from 'lucide-react';
 import { translations } from '../translations';
 import type { UnifiedTransaction } from '../types';
 import ConfirmationModal from './ConfirmationModal';
@@ -486,7 +486,6 @@ const MultiLineChart: React.FC<{
 
                         {/* X Axis Labels (Dynamic) */}
                         {xTicks.map((tick, i) => {
-                            // Don't render start/end if too close to edge
                             const x = xScale(tick);
                             let anchor = 'middle';
                             if (i === 0) anchor = 'start';
@@ -533,22 +532,34 @@ const MultiLineChart: React.FC<{
                         <div className="font-bold border-b border-gray-100 pb-1 mb-1 flex items-center gap-1 text-gray-500">
                             <Clock className="w-3 h-3"/> {tooltip.point.label}
                         </div>
-                        <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500"></span> {localT.cash}</span>
-                            <span className="font-mono font-bold">Rs.{tooltip.point.valCash.toFixed(0)}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1 text-sky-600"><span className="w-2 h-2 rounded-full bg-sky-500"></span> {localT.qr}</span>
-                            <span className="font-mono font-bold">Rs.{tooltip.point.valQr.toFixed(0)}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> {localT.credit}</span>
-                            <span className="font-mono font-bold">Rs.{tooltip.point.valCredit.toFixed(0)}</span>
-                        </div>
-                         <div className="flex justify-between items-center pt-1 border-t border-gray-100 mt-1">
-                            <span className="font-bold text-gray-800">{localT.total}</span>
-                            <span className="font-mono font-bold text-purple-600">Rs.{tooltip.point.total.toFixed(0)}</span>
-                        </div>
+                        
+                        {(focusedSeries === 'all' || focusedSeries === 'cash') && (
+                            <div className="flex justify-between items-center">
+                                <span className="flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500"></span> {localT.cash}</span>
+                                <span className="font-mono font-bold">Rs.{tooltip.point.valCash.toFixed(0)}</span>
+                            </div>
+                        )}
+                        
+                        {(focusedSeries === 'all' || focusedSeries === 'qr') && (
+                            <div className="flex justify-between items-center">
+                                <span className="flex items-center gap-1 text-sky-600"><span className="w-2 h-2 rounded-full bg-sky-500"></span> {localT.qr}</span>
+                                <span className="font-mono font-bold">Rs.{tooltip.point.valQr.toFixed(0)}</span>
+                            </div>
+                        )}
+
+                        {(focusedSeries === 'all' || focusedSeries === 'credit') && (
+                            <div className="flex justify-between items-center">
+                                <span className="flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> {localT.credit}</span>
+                                <span className="font-mono font-bold">Rs.{tooltip.point.valCredit.toFixed(0)}</span>
+                            </div>
+                        )}
+
+                        {focusedSeries === 'all' && (
+                             <div className="flex justify-between items-center pt-1 border-t border-gray-100 mt-1">
+                                <span className="font-bold text-gray-800">{localT.total}</span>
+                                <span className="font-mono font-bold text-purple-600">Rs.{tooltip.point.total.toFixed(0)}</span>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -777,7 +788,6 @@ const AnalyticsTab: React.FC = () => {
         if (isSingleDay) {
              // Day Mode: Hourly Bucketing for smoother lines
              const buckets: MultiLinePoint[] = [];
-             
              const startTime = new Date(dateRange.start);
              startTime.setHours(5, 0, 0, 0); // Start day at 5 AM business hours
 
@@ -791,11 +801,18 @@ const AnalyticsTab: React.FC = () => {
              }
 
              let currentCursor = new Date(startTime);
-             // If current time is past 5 AM, we bucket hours
-             while (currentCursor <= endTime || (isToday && currentCursor.getDate() === startTime.getDate() && currentCursor.getHours() <= new Date().getHours())) {
+             let safety = 0;
+             
+             // Create continuous hourly buckets
+             while (safety < 25) {
                  const bucketStart = new Date(currentCursor);
                  const bucketEnd = new Date(currentCursor);
                  bucketEnd.setHours(bucketEnd.getHours() + 1);
+
+                 // If we are past the end time (and not currently within the same hour as end time for today)
+                 if (bucketStart > endTime) break;
+                 // Stop if we roll over to next day
+                 if (bucketStart.getDate() !== startTime.getDate()) break;
 
                  const txnsInBucket = filteredTransactions.filter(t => {
                      const d = new Date(t.date);
@@ -814,15 +831,12 @@ const AnalyticsTab: React.FC = () => {
                  });
                  
                  currentCursor.setHours(currentCursor.getHours() + 1);
-                 if(currentCursor.getHours() === 0 && currentCursor.getDate() !== startTime.getDate()) break; // Stop at midnight next day
+                 safety++;
              }
              
-             // Ensure at least 2 points for a line
+             // Fallback for empty range
              if (buckets.length === 0) {
                  buckets.push({ timestamp: startTime.getTime(), label: '5:00 AM', valCash: 0, valQr: 0, valCredit: 0, total: 0 });
-                 buckets.push({ timestamp: endTime.getTime(), label: 'Now', valCash: 0, valQr: 0, valCredit: 0, total: 0 });
-             } else if (buckets.length === 1) {
-                  buckets.push({ timestamp: endTime.getTime(), label: 'Now', valCash: 0, valQr: 0, valCredit: 0, total: 0 });
              }
 
              return buckets;
@@ -832,18 +846,27 @@ const AnalyticsTab: React.FC = () => {
             const days: MultiLinePoint[] = [];
             const cursor = new Date(dateRange.start);
             const end = new Date(dateRange.end);
+            
+            // Normalize cursor to midnight to ensure day iteration works cleanly
+            cursor.setHours(0,0,0,0);
+            const normalizedEnd = new Date(end);
+            normalizedEnd.setHours(23,59,59,999);
+
             let safety = 0;
-            while (cursor <= end && safety < 40) {
+            while (cursor <= normalizedEnd && safety < 40) {
                  const dateKey = cursor.toDateString();
                  const dayTxns = transactionsByDate.get(dateKey) || [];
+                 
                  const valCash = dayTxns.filter(t => t.type === 'cash').reduce((s, t) => s + (Number(t.amount) || 0), 0);
                  const valQr = dayTxns.filter(t => t.type === 'qr').reduce((s, t) => s + (Number(t.amount) || 0), 0);
                  const valCredit = dayTxns.filter(t => t.type === 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+                 
                  days.push({
                      timestamp: cursor.getTime(),
                      label: cursor.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', {month:'short', day:'numeric'}),
                      valCash, valQr, valCredit, total: valCash + valQr + valCredit,
                  });
+                 
                  cursor.setDate(cursor.getDate() + 1);
                  safety++;
             }
