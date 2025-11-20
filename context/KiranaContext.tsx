@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { INITIAL_INVENTORY_ITEMS, INITIAL_TRANSACTIONS, INITIAL_KHATA_CUSTOMERS } from '../constants';
 import { translations } from '../translations';
@@ -30,12 +29,20 @@ interface KiranaContextType {
 
 const KiranaContext = createContext<KiranaContextType | undefined>(undefined);
 
-// --- Persistence Hook ---
-function usePersistentState<T>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+// --- Persistence Hook with Security Validation ---
+function usePersistentState<T>(key: string, initialValue: T, validator?: (val: any) => boolean): [T, React.Dispatch<React.SetStateAction<T>>] {
     const [state, setState] = useState(() => {
         try {
             const item = window.localStorage.getItem(key);
-            return item ? JSON.parse(item) : initialValue;
+            if (item) {
+                const parsed = JSON.parse(item);
+                if (validator && !validator(parsed)) {
+                    console.warn(`Validation failed for ${key}, using initial value.`);
+                    return initialValue;
+                }
+                return parsed;
+            }
+            return initialValue;
         } catch (error) {
             console.error(`Error reading localStorage key "${key}":`, error);
             return initialValue;
@@ -55,10 +62,29 @@ function usePersistentState<T>(key: string, initialValue: T): [T, React.Dispatch
 
 // --- Provider Component ---
 export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [language, setLanguage] = usePersistentState<'ne' | 'en'>('kirana-language', 'ne');
-    const [inventory, setInventory] = usePersistentState<InventoryItem[]>('kirana-inventory', INITIAL_INVENTORY_ITEMS);
-    const [transactions, setTransactions] = usePersistentState<Transaction[]>('kirana-transactions', INITIAL_TRANSACTIONS);
-    const [khataCustomers, setKhataCustomers] = usePersistentState<KhataCustomer[]>('kirana-khatas', INITIAL_KHATA_CUSTOMERS);
+    const [language, setLanguage] = usePersistentState<'ne' | 'en'>(
+        'kirana-language', 
+        'ne', 
+        (val) => val === 'ne' || val === 'en'
+    );
+    
+    const [inventory, setInventory] = usePersistentState<InventoryItem[]>(
+        'kirana-inventory', 
+        INITIAL_INVENTORY_ITEMS,
+        (val) => Array.isArray(val) && val.every((item: any) => item.id && item.name)
+    );
+    
+    const [transactions, setTransactions] = usePersistentState<Transaction[]>(
+        'kirana-transactions', 
+        INITIAL_TRANSACTIONS,
+        (val) => Array.isArray(val)
+    );
+    
+    const [khataCustomers, setKhataCustomers] = usePersistentState<KhataCustomer[]>(
+        'kirana-khatas', 
+        INITIAL_KHATA_CUSTOMERS,
+        (val) => Array.isArray(val)
+    );
 
     const toggleLanguage = () => setLanguage(prev => (prev === 'ne' ? 'en' : 'ne'));
 

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle } from 'lucide-react';
 import { translations } from '../translations';
 import type { KhataCustomer, EditableBillItem, InventoryItem } from '../types';
@@ -8,9 +8,6 @@ import { generateId, findInventoryItem, formatDateTime } from '../utils';
 import SelectKhataScreen from './SelectKhataScreen';
 import KhataPaymentModal from './KhataPaymentModal';
 import { useKirana } from '../context/KiranaContext';
-
-const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
 interface KarobarTabProps {
     onOpenCreateKhata: () => void;
@@ -31,6 +28,8 @@ const KhataDetailModal: React.FC<{
     const [apiError, setApiError] = useState<string | null>(null);
     const [todaysBillItems, setTodaysBillItems] = useState<EditableBillItem[]>([]);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+
+    const recognitionRef = useRef<any>(null);
 
     const previousDue = useMemo(() => {
         if (!customer) return 0;
@@ -57,15 +56,29 @@ const KhataDetailModal: React.FC<{
             setIsProcessing(false);
             setIsPaymentModalOpen(false);
         } else {
-             if (recognition) recognition.stop();
+             if (recognitionRef.current) {
+                 try { recognitionRef.current.stop(); } catch(e) {}
+             }
         }
     }, [isOpen]);
     
-    if (recognition) {
-        recognition.continuous = true;
-        recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
-        recognition.interimResults = true;
-    }
+    // Safe Speech Recognition Initialization
+    useEffect(() => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
+            recognition.interimResults = true;
+            recognitionRef.current = recognition;
+        }
+        return () => {
+            if (recognitionRef.current) {
+                try { recognitionRef.current.abort(); } catch(e) {}
+                recognitionRef.current = null;
+            }
+        };
+    }, [language]);
 
     const processVoiceCommand = useCallback(async (transcript: string) => {
         if (!transcript) return;
@@ -93,7 +106,9 @@ const KhataDetailModal: React.FC<{
     }, [language, inventory]);
 
     useEffect(() => {
+        const recognition = recognitionRef.current;
         if (!recognition || !isOpen) return;
+        
         recognition.onresult = (event: any) => {
             let final_transcript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -102,17 +117,35 @@ const KhataDetailModal: React.FC<{
             if (final_transcript.trim()) processVoiceCommand(final_transcript.trim());
         };
         recognition.onend = () => setIsListening(false);
-        recognition.onerror = (event: any) => { console.error('Speech recognition error:', event.error); setIsListening(false); };
-        return () => { if (recognition) { recognition.onresult = null; recognition.onend = null; recognition.onerror = null; } };
+        recognition.onerror = (event: any) => {
+            // Fix: Ignore 'aborted' error which happens on stop/cleanup
+            if (event.error === 'aborted') return; 
+            console.error('Speech recognition error:', event.error); 
+            setIsListening(false); 
+        };
+        
+        return () => {
+             recognition.onresult = null;
+             recognition.onend = null;
+             recognition.onerror = null;
+        };
     }, [processVoiceCommand, isOpen]);
 
     const handleListen = () => {
-        if (!recognition) return alert("Speech recognition is not supported in your browser.");
-        if (isListening) recognition.stop();
-        else {
-            setApiError(null);
-            recognition.start();
-            setIsListening(true);
+        if (!recognitionRef.current) return alert("Speech recognition is not supported in your browser.");
+        
+        try {
+            if (isListening) {
+                recognitionRef.current.stop();
+                setIsListening(false);
+            } else {
+                setApiError(null);
+                recognitionRef.current.start();
+                setIsListening(true);
+            }
+        } catch(e) {
+            console.error("Error toggling speech:", e);
+            setIsListening(false);
         }
     };
     

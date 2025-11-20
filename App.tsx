@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { getTabs } from './constants';
 import type { InventoryItem, EditableBillItem, PaymentContext } from './types';

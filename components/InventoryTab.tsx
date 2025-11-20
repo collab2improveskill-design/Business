@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown } from 'lucide-react';
 import type { InventoryItem, ParsedBillItemFromImage } from '../types';
 import { translations } from '../translations';
@@ -248,9 +248,6 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
         setIsProcessing(true);
         setError(null);
         
-        // Critical Fix for Async UX: 
-        // We yield to the main thread for 50ms to ensure the browser has time to 
-        // paint the "Processing..." spinner state before the CPU-intensive image compression starts.
         await new Promise(resolve => setTimeout(resolve, 50));
 
         try {
@@ -401,33 +398,62 @@ const InventoryTab: React.FC = () => {
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
     const t = translations[language];
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = SpeechRecognition ? new SpeechRecognition() : null;
     
+    const recognitionRef = useRef<any>(null);
+    
+    // Combined effect for lifecycle management and listener attachment to safe-guard against instance mismatch
+    useEffect(() => {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognitionRef.current = recognition;
+
+            recognition.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                setSearchTerm(transcript);
+            };
+    
+            recognition.onend = () => setIsVoiceSearching(false);
+            recognition.onerror = (event: any) => {
+                // Fix: Ignore 'aborted' error which happens on stop/cleanup
+                if (event.error === 'aborted') return; 
+                console.error('Speech recognition error:', event.error); 
+                setIsVoiceSearching(false); 
+            };
+        }
+        
+        return () => {
+            if (recognitionRef.current) {
+                try {
+                    recognitionRef.current.abort();
+                } catch(e) {
+                    // Ignore
+                }
+                recognitionRef.current = null;
+            }
+        };
+    }, [language]);
+
     const uniqueCategories = useMemo(() => ['all', ...Array.from(new Set(inventory.map(item => item.category)))], [inventory]);
 
-    useEffect(() => {
-        if (!recognition) return;
-
-        recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
-        recognition.continuous = false;
-        recognition.interimResults = false;
-
-        recognition.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
-            setSearchTerm(transcript);
-        };
-
-        recognition.onend = () => setIsVoiceSearching(false);
-        recognition.onerror = (event: any) => { console.error('Speech recognition error:', event.error); setIsVoiceSearching(false); };
-        
-        return () => { if (recognition) { recognition.stop(); recognition.onresult = null; recognition.onend = null; recognition.onerror = null; } }
-    }, [language, recognition]);
-
     const handleVoiceSearch = () => {
-        if (!recognition) { alert("Speech recognition is not supported in your browser."); return; }
-        if (isVoiceSearching) { recognition.stop(); } else { setSearchTerm(''); recognition.start(); setIsVoiceSearching(true); }
+        if (!recognitionRef.current) { alert("Speech recognition is not supported in your browser."); return; }
+        
+        try {
+            if (isVoiceSearching) { 
+                recognitionRef.current.stop(); 
+            } else { 
+                setSearchTerm(''); 
+                recognitionRef.current.start(); 
+                setIsVoiceSearching(true); 
+            }
+        } catch(e) {
+            console.error("Error toggling speech recognition:", e);
+            setIsVoiceSearching(false);
+        }
     };
 
     const sortedAndFilteredInventory = useMemo(() => {

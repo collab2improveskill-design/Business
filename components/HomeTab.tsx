@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Zap, Loader, Trash2, DollarSign, QrCode, BookUser } from 'lucide-react';
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Settings, Mic, Bell, Plus, ChevronRight, AlertCircle, X, Loader, Trash2, DollarSign, QrCode, BookUser, Zap } from 'lucide-react';
 import { getQuickStats } from '../constants';
 import { AI_SUGGESTIONS } from '../constants';
 import type { UnifiedTransaction, EditableBillItem, InventoryItem, PaymentContext } from '../types';
@@ -14,9 +15,6 @@ interface HomeTabProps {
   onNavigateToInventory: (itemId: string) => void;
   onQuickAddStock: (item: InventoryItem) => void;
 }
-
-const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
 const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInventory, onQuickAddStock }) => {
   const { 
@@ -33,15 +31,19 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
   const [customerName, setCustomerName] = useState<string>('');
   
   const [showCancelConfirm, setShowCancelConfirm] = useState<UnifiedTransaction | null>(null);
+  
+  const recognitionRef = useRef<any>(null);
+  
+  // Security/Stability: Use a ref to hold inventory so we don't need to add 'inventory' 
+  // to the useEffect dependency array. This prevents the mic from resetting every time 
+  // an item is added, ensuring a stable voice session.
+  const inventoryRef = useRef(inventory);
+  useEffect(() => {
+      inventoryRef.current = inventory;
+  }, [inventory]);
 
   const t = translations[language];
   const QUICK_STATS = getQuickStats(language);
-  
-  if (recognition) {
-    recognition.continuous = true;
-    recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
-    recognition.interimResults = true;
-  }
 
   const processVoiceCommand = useCallback(async (transcript: string) => {
     if (!transcript) return;
@@ -51,7 +53,8 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
       const result = await parseBillingFromVoice(transcript, language);
       
       const newEditableItems: EditableBillItem[] = result.items.map(item => {
-          const inventoryItem = findInventoryItem(item.name, inventory);
+          // Use the ref here to get the latest inventory without breaking the closure or restarting the effect
+          const inventoryItem = findInventoryItem(item.name, inventoryRef.current);
           return {
               id: generateId(),
               inventoryId: inventoryItem?.id,
@@ -74,27 +77,24 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
     } finally {
       setIsProcessing(false);
     }
-  }, [language, t.guest_customer, customerName, inventory]);
+  }, [language, t.guest_customer, customerName]);
 
-  const handleListen = () => {
-    if (!recognition) {
-        alert("Speech recognition is not supported in your browser.");
-        return;
-    }
-    if (isListening) {
-      recognition.stop();
-      setIsListening(false);
-    } else {
-      setBillItems([]);
-      setCustomerName('');
-      setApiError(null);
-      recognition.start();
-      setIsListening(true);
-    }
-  };
-
+  // Stable ref for the callback to prevent effect recreation
+  const processVoiceCommandRef = useRef(processVoiceCommand);
   useEffect(() => {
-    if (!recognition) return;
+    processVoiceCommandRef.current = processVoiceCommand;
+  }, [processVoiceCommand]);
+
+  // Atomic Speech Recognition Lifecycle
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = language === 'ne' ? 'ne-NP' : 'en-US';
+    recognitionRef.current = recognition;
 
     recognition.onresult = (event: any) => {
       let final_transcript = '';
@@ -104,7 +104,8 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
         }
       }
       if (final_transcript.trim()) {
-        processVoiceCommand(final_transcript.trim());
+        // Call via ref to keep this effect stable
+        processVoiceCommandRef.current(final_transcript.trim());
       }
     };
 
@@ -113,19 +114,49 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
     };
     
     recognition.onerror = (event: any) => {
+      // Fix: Ignore 'aborted' error which happens on stop/cleanup to avoid console spam
+      if (event.error === 'aborted') return;
+      
       console.error('Speech recognition error:', event.error);
-      setIsListening(false);
+      if (event.error !== 'no-speech') {
+          setIsListening(false);
+      }
     };
 
     return () => {
-        if (recognition) {
-            recognition.stop();
-            recognition.onresult = null;
-            recognition.onend = null;
-            recognition.onerror = null;
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // Ignore abort errors on unmount
         }
+        recognitionRef.current = null;
+      }
     };
-  }, [processVoiceCommand]);
+  }, [language]); // Only restart when language changes
+
+  const handleListen = () => {
+    if (!recognitionRef.current) {
+        alert("Speech recognition is not supported in your browser.");
+        return;
+    }
+    
+    try {
+      if (isListening) {
+        recognitionRef.current.stop();
+        setIsListening(false);
+      } else {
+        setBillItems([]);
+        setCustomerName('');
+        setApiError(null);
+        recognitionRef.current.start();
+        setIsListening(true);
+      }
+    } catch (e) {
+      console.error("Error toggling speech recognition:", e);
+      setIsListening(false);
+    }
+  };
   
   const handleItemChange = (index: number, field: keyof Omit<EditableBillItem, 'id'| 'inventoryId'>, value: string) => {
     const updatedItems = [...billItems];
@@ -373,15 +404,15 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
         </div>
         <div className="space-y-1">
           {unifiedRecentTransactions.length > 0 ? unifiedRecentTransactions.map((txn) => {
-            const status = paymentStatusInfo[txn.type];
+            const status = paymentStatusInfo[txn.type] || paymentStatusInfo.cash; // Fallback for safety
             return (
                 <div key={`${txn.originalType}-${txn.id}`} className="group flex items-center justify-between p-3 border-b last:border-0">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-400 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                      {txn.customerName.charAt(0)}
+                      {txn.customerName ? txn.customerName.charAt(0) : '?'}
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-800">{txn.customerName}</p>
+                      <p className="text-sm font-medium text-gray-800">{txn.customerName || 'Unknown'}</p>
                       <p className="text-xs text-gray-500 mt-1">{formatDateTime(txn.date, language)}</p>
                     </div>
                   </div>

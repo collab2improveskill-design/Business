@@ -1,22 +1,20 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 interface Props {
-  children: ReactNode;
+    children?: ReactNode;
 }
 
 interface State {
   hasError: boolean;
 }
 
-class ErrorBoundary extends Component<Props, State> {
-  // FIX: Replaced class property state initialization with a standard constructor.
-  // The class property syntax might not be correctly handled by the project's build setup,
-  // causing `this.props` to be unrecognized in the render method. The constructor
-  // ensures the component is initialized correctly.
+class ErrorBoundary extends React.Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = {
+      hasError: false
+    };
   }
 
   public static getDerivedStateFromError(_: Error): State {
@@ -25,7 +23,7 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // You can also log the error to an error reporting service
+    // Log error to console or external service
     console.error("Uncaught error:", error, errorInfo);
   }
 
@@ -33,19 +31,18 @@ class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
-  public render() {
+  render() {
     if (this.state.hasError) {
-      // You can render any custom fallback UI
       return (
         <div className="flex flex-col items-center justify-center h-screen text-center p-4 bg-gray-50 max-w-md mx-auto">
             <AlertTriangle className="w-16 h-16 mb-4 text-red-400" />
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Something went wrong.</h1>
-            <p className="text-gray-600 mb-6">We're sorry for the inconvenience. Please try refreshing the page.</p>
-            <button
+            <p className="text-gray-600 mb-6">We encountered an unexpected error. Please try reloading.</p>
+            <button 
                 onClick={this.handleRefresh}
-                className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors"
+                className="px-6 py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-lg"
             >
-                Refresh Page
+                Reload App
             </button>
         </div>
       );
