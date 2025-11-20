@@ -162,27 +162,42 @@ const CustomRangeModal: React.FC<{
     if (!isOpen) return null;
 
     const handleSubmit = () => {
+        setError(null);
+
+        // 1. Input Existence Validation
         if (!start || !end) {
             setError(localT.invalid_range);
             return;
         }
+
         const sDate = new Date(start);
         const eDate = new Date(end);
         const today = new Date();
         today.setHours(23, 59, 59, 999);
 
+        // 2. Invalid Date Check (NaN)
+        if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) {
+             setError(localT.invalid_range);
+             return;
+        }
+
+        // 3. Logical Order Validation
         if (sDate > eDate) {
             setError(localT.invalid_range);
             return;
         }
+
+        // 4. Future Date Validation
         if (eDate > today) {
-            setError(localT.invalid_range); // Future not allowed
+            setError(localT.invalid_range); 
             return;
         }
 
-        // 30 day limit check
+        // 5. Range Limit Validation (DoS Prevention)
+        // Calculate difference in days
         const diffTime = Math.abs(eDate.getTime() - sDate.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        
         if (diffDays > MAX_CUSTOM_RANGE_DAYS) {
             setError(localT.range_limit_error);
             return;
@@ -208,11 +223,11 @@ const CustomRangeModal: React.FC<{
                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-600 mb-1">{localT.start_date}</label>
-                        <input type="date" value={start} max={new Date().toISOString().split('T')[0]} onChange={(e) => setStart(e.target.value)} className="w-full p-2 border rounded-lg" />
+                        <input type="date" value={start} max={new Date().toISOString().split('T')[0]} onChange={(e) => setStart(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-600 mb-1">{localT.end_date}</label>
-                        <input type="date" value={end} max={new Date().toISOString().split('T')[0]} onChange={(e) => setEnd(e.target.value)} className="w-full p-2 border rounded-lg" />
+                        <input type="date" value={end} max={new Date().toISOString().split('T')[0]} onChange={(e) => setEnd(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
                     </div>
                 </div>
 
@@ -234,6 +249,9 @@ const BrushSlider: React.FC<{
     if (!data || data.length === 0) return null;
     
     const maxTotal = Math.max(...data.map(d => Math.max(d.valCash, d.valQr, d.valCredit))) || 1;
+    // Safety check for SVG path generation
+    const safeMax = isFinite(maxTotal) && maxTotal > 0 ? maxTotal : 1;
+
     const minTime = data[0].timestamp;
     const maxTime = data[data.length - 1].timestamp;
     const timeRange = maxTime - minTime || 1;
@@ -241,8 +259,8 @@ const BrushSlider: React.FC<{
     // Use Total for brush preview
     const points = data.map((d) => {
         const x = ((d.timestamp - minTime) / timeRange) * 100;
-        const y = 100 - (d.total / maxTotal) * 100;
-        return `${x},${y}`;
+        const y = 100 - ((d.total || 0) / safeMax) * 100;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>, index: 0 | 1) => {
@@ -275,17 +293,17 @@ const BrushSlider: React.FC<{
 
 // 2. Interactive Payment Distribution Donut Chart
 const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amount: number }[] }> = ({ data }) => {
-    const total = data.reduce((acc, curr) => acc + curr.amount, 0);
+    const total = data.reduce((acc, curr) => acc + (curr.amount || 0), 0);
     const [hoveredSlice, setHoveredSlice] = useState<DonutSlice | null>(null);
     
     let accumulatedAngle = 0;
 
-    if (total === 0) return <div className="h-32 flex items-center justify-center text-gray-400 text-xs border-2 border-dashed rounded-full aspect-square mx-auto bg-gray-50">No Data</div>;
+    if (total <= 0) return <div className="h-32 flex items-center justify-center text-gray-400 text-xs border-2 border-dashed rounded-full aspect-square mx-auto bg-gray-50">No Data</div>;
 
     // Enhance data with percentages
     const enhancedData: DonutSlice[] = data.map(d => ({
         ...d,
-        percentage: (d.amount / total) * 100
+        percentage: total > 0 ? (d.amount / total) * 100 : 0
     }));
 
     return (
@@ -300,11 +318,11 @@ const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amou
             
             <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full overflow-visible">
                 {enhancedData.map((slice) => {
-                    if (slice.amount === 0) return null;
+                    if (slice.amount <= 0) return null;
                     const angle = (slice.amount / total) * 360;
                     
                     // Handle single slice case
-                    if (angle === 360) return <circle key={slice.type} cx="50" cy="50" r="50" fill={COLORS[slice.type]} onMouseEnter={() => setHoveredSlice(slice)} onMouseLeave={() => setHoveredSlice(null)} />;
+                    if (angle >= 359.9) return <circle key={slice.type} cx="50" cy="50" r="50" fill={COLORS[slice.type]} onMouseEnter={() => setHoveredSlice(slice)} onMouseLeave={() => setHoveredSlice(null)} />;
 
                     const largeArcFlag = angle > 180 ? 1 : 0;
                     const startX = 50 + 50 * Math.cos((Math.PI * accumulatedAngle) / 180);
@@ -363,8 +381,17 @@ const MultiLineChart: React.FC<{
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
-    // Data Integrity Check
-    const safeData = data && data.length > 0 ? data : [{timestamp: Date.now(), label: '', valCash:0, valQr:0, valCredit:0, total:0}];
+    // Data Integrity Check: Ensure no NaN or missing data points (Sanitization)
+    const safeData = useMemo(() => {
+        if (!data || data.length === 0) return [{timestamp: Date.now(), label: '', valCash:0, valQr:0, valCredit:0, total:0}];
+        return data.map(d => ({
+            ...d,
+            valCash: isFinite(d.valCash) ? d.valCash : 0,
+            valQr: isFinite(d.valQr) ? d.valQr : 0,
+            valCredit: isFinite(d.valCredit) ? d.valCredit : 0,
+            total: isFinite(d.total) ? d.total : 0
+        }));
+    }, [data]);
     
     // Calculate visible time range
     const fullMinTime = safeData[0].timestamp;
@@ -383,7 +410,8 @@ const MultiLineChart: React.FC<{
 
     // Determine Max Value for Y-Scale (across all 3 series)
     const maxVal = Math.max(...visibleData.map(d => Math.max(d.valCash, d.valQr, d.valCredit))) || 0;
-    const yMax = maxVal > 0 ? maxVal * 1.1 : 100;
+    // Defense against Infinity/0
+    const yMax = (isFinite(maxVal) && maxVal > 0) ? maxVal * 1.1 : 100;
 
     // Scales
     const xScale = (timestamp: number) => ((timestamp - visibleMinTime) / visibleTimeRange) * innerWidth;
@@ -393,11 +421,16 @@ const MultiLineChart: React.FC<{
         if (visibleData.length === 0) return `M 0 ${innerHeight} L ${innerWidth} ${innerHeight}`;
         if (visibleData.length === 1) {
             const y = yScale(visibleData[0][key]);
-            return `M 0 ${y} L ${innerWidth} ${y}`;
+            return `M 0 ${isFinite(y) ? y : innerHeight} L ${innerWidth} ${isFinite(y) ? y : innerHeight}`;
         }
-        return visibleData.map((d, i) => 
-            `${i === 0 ? 'M' : 'L'} ${xScale(d.timestamp).toFixed(1)} ${yScale(d[key]).toFixed(1)}`
-        ).join(' ');
+        return visibleData.map((d, i) => {
+            const x = xScale(d.timestamp);
+            const y = yScale(d[key]);
+            // Extra safety for SVG paths to prevent NaN causing rendering crashes
+            const safeX = isFinite(x) ? x.toFixed(1) : '0';
+            const safeY = isFinite(y) ? y.toFixed(1) : innerHeight.toString();
+            return `${i === 0 ? 'M' : 'L'} ${safeX} ${safeY}`;
+        }).join(' ');
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
@@ -492,7 +525,7 @@ const MultiLineChart: React.FC<{
                             if (i === xTicks.length - 1) anchor = 'end';
                             
                             return (
-                                <text key={i} x={x} y={innerHeight + 20} textAnchor={anchor} fontSize="10" fill="#9ca3af">
+                                <text key={i} x={isFinite(x) ? x : 0} y={innerHeight + 20} textAnchor={anchor} fontSize="10" fill="#9ca3af">
                                     {formatTick(tick)}
                                 </text>
                             );
@@ -786,57 +819,78 @@ const AnalyticsTab: React.FC = () => {
 
     const chartData = useMemo((): MultiLinePoint[] => {
         if (isSingleDay) {
-             // Day Mode: Hourly Bucketing for smoother lines
+             // Optimized Day Mode: O(N) Aggregation
+             // 1. Aggregate into Map first to avoid O(N*M) complexity
+             const hourlyMap = new Map<string, { cash: number, qr: number, credit: number }>();
+
+             filteredTransactions.forEach(txn => {
+                // Extract Hour (0-23)
+                const d = new Date(txn.date);
+                const hourKey = d.getHours().toString();
+                
+                if (!hourlyMap.has(hourKey)) {
+                    hourlyMap.set(hourKey, { cash: 0, qr: 0, credit: 0 });
+                }
+                const entry = hourlyMap.get(hourKey)!;
+                // Explicit sanitization
+                const val = Number(txn.amount);
+                const safeVal = isFinite(val) ? val : 0;
+                
+                if (txn.type === 'cash') entry.cash += safeVal;
+                else if (txn.type === 'qr') entry.qr += safeVal;
+                else if (txn.type === 'credit') entry.credit += safeVal;
+             });
+
              const buckets: MultiLinePoint[] = [];
              const startTime = new Date(dateRange.start);
-             startTime.setHours(5, 0, 0, 0); // Start day at 5 AM business hours
+             startTime.setHours(5, 0, 0, 0); // Always start at 5 AM
 
              const endTime = new Date(dateRange.start);
+             
              if (isToday) {
-                 endTime.setTime(Date.now());
-                 // Ensure we show at least until now, but if now < 5am, force 5am
-                 if (endTime.getHours() < 5) endTime.setHours(5, 0, 0, 0);
+                 const now = new Date();
+                 // If strictly today, cap at current time
+                 if (now < startTime) {
+                     // If it's early morning (e.g. 2 AM), business day hasn't really started visually
+                     endTime.setHours(5, 0, 0, 0); 
+                 } else {
+                     endTime.setTime(now.getTime());
+                 }
              } else {
+                 // Past day or future day (if allowed) - show full day until midnight
                  endTime.setHours(23, 59, 59, 999);
              }
 
              let currentCursor = new Date(startTime);
-             let safety = 0;
              
-             // Create continuous hourly buckets
-             while (safety < 25) {
-                 const bucketStart = new Date(currentCursor);
-                 const bucketEnd = new Date(currentCursor);
-                 bucketEnd.setHours(bucketEnd.getHours() + 1);
-
-                 // If we are past the end time (and not currently within the same hour as end time for today)
-                 if (bucketStart > endTime) break;
-                 // Stop if we roll over to next day
-                 if (bucketStart.getDate() !== startTime.getDate()) break;
-
-                 const txnsInBucket = filteredTransactions.filter(t => {
-                     const d = new Date(t.date);
-                     return d >= bucketStart && d < bucketEnd;
-                 });
-
-                 const valCash = txnsInBucket.filter(t => t.type === 'cash').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-                 const valQr = txnsInBucket.filter(t => t.type === 'qr').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-                 const valCredit = txnsInBucket.filter(t => t.type === 'credit').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-
+             // Loop until we surpass the end time
+             // We use a safety counter just in case, but logic should be robust
+             let safety = 0;
+             while (currentCursor <= endTime && safety < 25) {
+                 const hourKey = currentCursor.getHours().toString();
+                 const data = hourlyMap.get(hourKey) || { cash: 0, qr: 0, credit: 0 };
+                 
                  buckets.push({
-                     timestamp: bucketStart.getTime(),
-                     label: bucketStart.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
-                     valCash, valQr, valCredit, 
-                     total: valCash + valQr + valCredit
+                     timestamp: currentCursor.getTime(),
+                     label: currentCursor.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
+                     valCash: data.cash,
+                     valQr: data.qr,
+                     valCredit: data.credit, 
+                     total: data.cash + data.qr + data.credit
                  });
                  
+                 // Increment by 1 hour
                  currentCursor.setHours(currentCursor.getHours() + 1);
                  safety++;
              }
-             
-             // Fallback for empty range
+
+             // Fallback for empty chart (e.g. 4 AM today)
              if (buckets.length === 0) {
-                 buckets.push({ timestamp: startTime.getTime(), label: '5:00 AM', valCash: 0, valQr: 0, valCredit: 0, total: 0 });
+                  buckets.push({
+                     timestamp: startTime.getTime(),
+                     label: startTime.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
+                     valCash: 0, valQr: 0, valCredit: 0, total: 0
+                 });
              }
 
              return buckets;
@@ -847,7 +901,7 @@ const AnalyticsTab: React.FC = () => {
             const cursor = new Date(dateRange.start);
             const end = new Date(dateRange.end);
             
-            // Normalize cursor to midnight to ensure day iteration works cleanly
+            // Normalize cursor to midnight
             cursor.setHours(0,0,0,0);
             const normalizedEnd = new Date(end);
             normalizedEnd.setHours(23,59,59,999);
