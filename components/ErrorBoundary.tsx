@@ -1,4 +1,5 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
 interface ErrorBoundaryProps {
@@ -9,13 +10,10 @@ interface ErrorBoundaryState {
   hasError: boolean;
 }
 
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = {
-      hasError: false
-    };
-  }
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = {
+    hasError: false
+  };
 
   public static getDerivedStateFromError(_: Error): ErrorBoundaryState {
     return { hasError: true };
@@ -29,7 +27,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     window.location.reload();
   };
 
-  render() {
+  public render() {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-screen text-center p-4 bg-gray-50 max-w-md mx-auto">

@@ -66,6 +66,7 @@ export const translations = {
     insufficient_stock_error: "अपर्याप्त स्टक!",
     confirm_cancel_sale_title: "बिक्री रद्द गर्ने?",
     confirm_cancel_sale_desc: "के तपाईं यो बिक्री रद्द गर्न निश्चित हुनुहुन्छ? सामानहरू स्टकमा फिर्ता हुनेछन्।",
+    microphone_permission_denied: "माइक प्रयोग गर्न अनुमति दिइएन। कृपया सेटिङमा गएर अनुमति दिनुहोस्।",
     
     // Inventory
     inventory_management: "स्टक व्यवस्थापन",
@@ -160,6 +161,9 @@ export const translations = {
     pay_grand_total: "कुल जम्मा तिर्नुहोस्: {amount} रु",
     payment_method: "भुक्तानी विधि",
     confirm_discard_bill: "के तपाईं असुरक्षित बिल रद्द गर्न चाहनुहुन्छ?",
+    selected: "छानिएको",
+    delete_customer_warning: "चेतावनी: छानिएका ग्राहकहरूको बाँकी रकम रु {amount} छ। मेटाउँदा यी रेकर्डहरू सधैंको लागि हट्नेछन्। के तपाईं निश्चित हुनुहुन्छ?",
+    add_item_placeholder: "सामानको नाम",
     
     // Payment Modal
     confirm_bill: "बिल पक्का गर्नुहोस्",
@@ -239,7 +243,7 @@ export const translations = {
     insufficient_stock_error: "Insufficient stock!",
     confirm_cancel_sale_title: "Cancel Sale?",
     confirm_cancel_sale_desc: "Are you sure you want to cancel this sale? Items will be returned to stock.",
-
+    microphone_permission_denied: "Microphone access denied. Please enable permissions in your browser settings.",
     
     // Inventory
     inventory_management: "Inventory Management",
@@ -334,6 +338,9 @@ export const translations = {
     pay_grand_total: "Pay Grand Total: {amount} rs",
     payment_method: "Payment Method",
     confirm_discard_bill: "Do you want to discard the unsaved bill?",
+    selected: "Selected",
+    delete_customer_warning: "Warning: Selected customers have a remaining balance of Rs {amount}. Deleting will remove these records permanently. Are you sure?",
+    add_item_placeholder: "Item name",
 
     // Payment Modal
     confirm_bill: "Confirm Bill",

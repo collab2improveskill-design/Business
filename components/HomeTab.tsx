@@ -42,7 +42,6 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
   const t = translations[language];
   const QUICK_STATS = getQuickStats(language);
 
-  // IMPROVED: Data Integrity & Sanitization (Consistent with KarobarTab)
   const processVoiceCommand = useCallback(async (transcript: string) => {
     if (!transcript) return;
     setIsProcessing(true);
@@ -53,7 +52,6 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
       const newEditableItems: EditableBillItem[] = result.items.map(item => {
           const inventoryItem = findInventoryItem(item.name, inventoryRef.current);
           
-          // SANITIZATION: Prevent NaN/Infinity
           const parsedPrice = parseFloat(String(item.price));
           const safePrice = Number.isFinite(parsedPrice) 
                 ? parsedPrice 
@@ -119,11 +117,20 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
       setIsListening(false);
     };
     
+    // FIXED: Robust Error Handling
     recognition.onerror = (event: any) => {
-      if (event.error === 'aborted') return;
-      console.error('Speech recognition error:', event.error);
-      if (event.error !== 'no-speech') {
+      if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+          setApiError(t.microphone_permission_denied);
           setIsListening(false);
+      } else if (event.error === 'aborted' || event.error === 'no-speech') {
+          // Ignore harmless errors
+          if (event.error === 'no-speech') setIsListening(false);
+      } else {
+          console.error('Speech recognition error:', event.error);
+          if (event.error !== 'no-speech') {
+              setApiError(`Voice Error: ${event.error}`);
+              setIsListening(false);
+          }
       }
     };
 
@@ -136,7 +143,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
         recognitionRef.current = null;
       }
     };
-  }, [language]);
+  }, [language, t.microphone_permission_denied]);
 
   const handleListen = () => {
     if (!recognitionRef.current) {
@@ -275,9 +282,12 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
       </div>
       
       {apiError && (
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg" role="alert">
-          <p className="font-bold">{t.error}</p>
-          <p>{apiError}</p>
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg flex items-start gap-2" role="alert">
+          <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0"/>
+          <div>
+              <p className="font-bold">{t.error}</p>
+              <p className="text-sm">{apiError}</p>
+          </div>
         </div>
       )}
 
@@ -427,7 +437,6 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
                             <span className="text-xs font-semibold">{status.text}</span>
                         </div>
                     </div>
-                    {/* MOBILE UX: Always visible button, padding for touch target */}
                     <button 
                         onClick={() => setShowCancelConfirm(txn)} 
                         className="text-gray-400 hover:text-red-600 transition-colors self-start p-3"

@@ -12,6 +12,7 @@ interface KiranaContextType {
     setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
     transactions: Transaction[];
     khataCustomers: KhataCustomer[];
+    setKhataCustomers: React.Dispatch<React.SetStateAction<KhataCustomer[]>>;
     
     // Actions
     addStock: (items: { inventoryId?: string; quantity: string | number, name: string }[]) => void;
@@ -321,7 +322,7 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const value = {
         language, setLanguage, toggleLanguage,
         inventory, setInventory,
-        transactions, khataCustomers,
+        transactions, khataCustomers, setKhataCustomers,
         addStock, handleConfirmSale, handleKhataSettlement, handleAddItemsToKhata,
         deleteTransaction, deleteKhataTransaction, addNewKhataCustomer,
         lowStockItems, unifiedRecentTransactions
