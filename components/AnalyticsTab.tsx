@@ -520,7 +520,7 @@ const MultiLineChart: React.FC<{
                         {/* X Axis Labels (Dynamic) */}
                         {xTicks.map((tick, i) => {
                             const x = xScale(tick);
-                            let anchor = 'middle';
+                            let anchor: "start" | "middle" | "end" = 'middle';
                             if (i === 0) anchor = 'start';
                             if (i === xTicks.length - 1) anchor = 'end';
                             

@@ -34,9 +34,6 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
   
   const recognitionRef = useRef<any>(null);
   
-  // Security/Stability: Use a ref to hold inventory so we don't need to add 'inventory' 
-  // to the useEffect dependency array. This prevents the mic from resetting every time 
-  // an item is added, ensuring a stable voice session.
   const inventoryRef = useRef(inventory);
   useEffect(() => {
       inventoryRef.current = inventory;
@@ -45,6 +42,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
   const t = translations[language];
   const QUICK_STATS = getQuickStats(language);
 
+  // IMPROVED: Data Integrity & Sanitization (Consistent with KarobarTab)
   const processVoiceCommand = useCallback(async (transcript: string) => {
     if (!transcript) return;
     setIsProcessing(true);
@@ -53,15 +51,26 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
       const result = await parseBillingFromVoice(transcript, language);
       
       const newEditableItems: EditableBillItem[] = result.items.map(item => {
-          // Use the ref here to get the latest inventory without breaking the closure or restarting the effect
           const inventoryItem = findInventoryItem(item.name, inventoryRef.current);
+          
+          // SANITIZATION: Prevent NaN/Infinity
+          const parsedPrice = parseFloat(String(item.price));
+          const safePrice = Number.isFinite(parsedPrice) 
+                ? parsedPrice 
+                : (inventoryItem?.price || 0);
+                
+          const parsedQty = parseFloat(String(item.quantity));
+          const safeQty = Number.isFinite(parsedQty) 
+                ? parsedQty 
+                : 1;
+
           return {
               id: generateId(),
               inventoryId: inventoryItem?.id,
               name: inventoryItem?.name || item.name || '',
-              quantity: String(item.quantity || 1),
+              quantity: String(safeQty),
               unit: inventoryItem?.unit || item.unit || '',
-              price: String(inventoryItem?.price || item.price || 0),
+              price: String(safePrice),
           };
       });
       
@@ -79,13 +88,11 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
     }
   }, [language, t.guest_customer, customerName]);
 
-  // Stable ref for the callback to prevent effect recreation
   const processVoiceCommandRef = useRef(processVoiceCommand);
   useEffect(() => {
     processVoiceCommandRef.current = processVoiceCommand;
   }, [processVoiceCommand]);
 
-  // Atomic Speech Recognition Lifecycle
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -104,7 +111,6 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
         }
       }
       if (final_transcript.trim()) {
-        // Call via ref to keep this effect stable
         processVoiceCommandRef.current(final_transcript.trim());
       }
     };
@@ -114,9 +120,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
     };
     
     recognition.onerror = (event: any) => {
-      // Fix: Ignore 'aborted' error which happens on stop/cleanup to avoid console spam
       if (event.error === 'aborted') return;
-      
       console.error('Speech recognition error:', event.error);
       if (event.error !== 'no-speech') {
           setIsListening(false);
@@ -128,12 +132,11 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
         try {
           recognitionRef.current.abort();
         } catch (e) {
-          // Ignore abort errors on unmount
         }
         recognitionRef.current = null;
       }
     };
-  }, [language]); // Only restart when language changes
+  }, [language]);
 
   const handleListen = () => {
     if (!recognitionRef.current) {
@@ -310,7 +313,7 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
                         <input type="text" inputMode="decimal" value={item.quantity} onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)} className="col-span-2 p-2 border rounded-md text-sm text-center" />
                         <input type="text" value={item.unit} onChange={(e) => handleItemChange(idx, 'unit', e.target.value)} className="col-span-2 p-2 border rounded-md text-sm" />
                         <input type="text" inputMode="decimal" value={item.price} onChange={(e) => handleItemChange(idx, 'price', e.target.value)} className="col-span-2 p-2 border rounded-md text-sm text-center" />
-                        <button onClick={() => handleRemoveItem(item.id)} className="col-span-1 flex justify-center items-center text-red-400 hover:text-red-600">
+                        <button onClick={() => handleRemoveItem(item.id)} className="col-span-1 flex justify-center items-center text-red-400 hover:text-red-600 p-2">
                             <Trash2 className="w-4 h-4" />
                         </button>
                     </div>
@@ -424,7 +427,11 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
                             <span className="text-xs font-semibold">{status.text}</span>
                         </div>
                     </div>
-                    <button onClick={() => setShowCancelConfirm(txn)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700 self-start pt-1">
+                    {/* MOBILE UX: Always visible button, padding for touch target */}
+                    <button 
+                        onClick={() => setShowCancelConfirm(txn)} 
+                        className="text-gray-400 hover:text-red-600 transition-colors self-start p-3"
+                    >
                         <Trash2 className="w-4 h-4"/>
                     </button>
                   </div>

@@ -1,3 +1,4 @@
+
 export const translations = {
   ne: {
     // General
@@ -143,7 +144,8 @@ export const translations = {
     no_customers_yet: "अहिलेसम्म कुनै ग्राहक छैन। सुरु गर्न माथि 'नयाँ खाता खोल्नुहोस्' मा ट्याप गर्नुहोस्।",
     no_customers_found: "तपाईंको खोजीको लागि कुनै ग्राहक भेटिएन।",
     previous_due: "पहिलेको बाँकी",
-    todays_bill: "आजको बिल",
+    todays_bill: "आजको बिल", // Legacy key, kept for safety
+    current_bill: "हालको बिल",
     grand_total: "कुल जम्मा",
     add_to_khata: "खातामा थप्नुहोस्",
     receive_payment: "भुक्तानी लिनुहोस्",
@@ -152,10 +154,12 @@ export const translations = {
     payment_received_desc: "भुक्तानी प्राप्त भयो",
     quick_cash: "द्रुत नगद",
     quick_cash_success: "✅ {name} बाट रु {amount} नगद भुक्तानी प्राप्त भयो।",
+    confirm_quick_cash: "के तपाइँ रु {amount} को पूरा नगद भुक्तानी लिन निश्चित हुनुहुन्छ?",
     select_amount_to_pay: "तिर्ने रकम छान्नुहोस्",
     pay_todays_bill: "आजको बिल तिर्नुहोस्: {amount} रु",
     pay_grand_total: "कुल जम्मा तिर्नुहोस्: {amount} रु",
     payment_method: "भुक्तानी विधि",
+    confirm_discard_bill: "के तपाईं असुरक्षित बिल रद्द गर्न चाहनुहुन्छ?",
     
     // Payment Modal
     confirm_bill: "बिल पक्का गर्नुहोस्",
@@ -314,7 +318,8 @@ export const translations = {
     no_customers_yet: "No customers yet. Tap 'Add New Khata' above to add your first one.",
     no_customers_found: "No customers found for your search.",
     previous_due: "Previous Due",
-    todays_bill: "Today's Bill",
+    todays_bill: "Today's Bill", // Legacy key
+    current_bill: "Current Bill",
     grand_total: "Grand Total",
     add_to_khata: "Add to Khata",
     receive_payment: "Receive Payment",
@@ -323,10 +328,12 @@ export const translations = {
     payment_received_desc: "Payment Received",
     quick_cash: "Quick Cash",
     quick_cash_success: "✅ Cash payment of Rs. {amount} received from {name}.",
+    confirm_quick_cash: "Receive full payment of Rs. {amount} in Cash?",
     select_amount_to_pay: "Select Amount to Pay",
     pay_todays_bill: "Pay Today's Bill: {amount} rs",
     pay_grand_total: "Pay Grand Total: {amount} rs",
     payment_method: "Payment Method",
+    confirm_discard_bill: "Do you want to discard the unsaved bill?",
 
     // Payment Modal
     confirm_bill: "Confirm Bill",

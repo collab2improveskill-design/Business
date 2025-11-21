@@ -80,21 +80,35 @@ const KhataDetailModal: React.FC<{
         };
     }, [language]);
 
+    // IMPROVED: Data Integrity & Sanitization
     const processVoiceCommand = useCallback(async (transcript: string) => {
         if (!transcript) return;
         setIsProcessing(true);
         setApiError(null);
         try {
             const result = await parseBillingFromVoice(transcript, language);
+            
             const newEditableItems: EditableBillItem[] = result.items.map(item => {
                 const inventoryItem = findInventoryItem(item.name, inventory);
+                
+                // SANITIZATION: Prevent NaN/Infinity from crashing the app
+                const parsedPrice = parseFloat(String(item.price));
+                const safePrice = Number.isFinite(parsedPrice) 
+                    ? parsedPrice 
+                    : (inventoryItem?.price || 0);
+                    
+                const parsedQty = parseFloat(String(item.quantity));
+                const safeQty = Number.isFinite(parsedQty) 
+                    ? parsedQty 
+                    : 1;
+
                 return {
                     id: generateId(),
                     inventoryId: inventoryItem?.id,
-                    name: inventoryItem?.name || item.name || '',
-                    quantity: String(item.quantity || 1),
-                    unit: inventoryItem?.unit || item.unit || '',
-                    price: String(inventoryItem?.price || item.price || 0),
+                    name: inventoryItem?.name || item.name || 'Unknown Item',
+                    quantity: String(safeQty),
+                    unit: inventoryItem?.unit || item.unit || 'pcs',
+                    price: String(safePrice),
                 };
             });
             setTodaysBillItems(prevItems => [...prevItems, ...newEditableItems]);
@@ -118,7 +132,6 @@ const KhataDetailModal: React.FC<{
         };
         recognition.onend = () => setIsListening(false);
         recognition.onerror = (event: any) => {
-            // Fix: Ignore 'aborted' error which happens on stop/cleanup
             if (event.error === 'aborted') return; 
             console.error('Speech recognition error:', event.error); 
             setIsListening(false); 
@@ -159,14 +172,20 @@ const KhataDetailModal: React.FC<{
         }
     };
     
+    // SAFETY: Financial Confirmation
     const handleQuickCash = () => {
         if (!customer || grandTotal <= 0) return;
-        const result = handleKhataSettlement(customer.id, todaysBillItems, grandTotal, 'cash');
-        if (result.success) {
-            onShowSuccess(t.quick_cash_success.replace('{amount}', grandTotal.toFixed(2)).replace('{name}', customer.name));
-            onClose(); // Close the detail modal
-        } else {
-            setApiError(result.error || "Failed to process quick cash payment.");
+        
+        const confirmMessage = t.confirm_quick_cash.replace('{amount}', grandTotal.toFixed(2));
+        
+        if (window.confirm(confirmMessage)) {
+            const result = handleKhataSettlement(customer.id, todaysBillItems, grandTotal, 'cash');
+            if (result.success) {
+                onShowSuccess(t.quick_cash_success.replace('{amount}', grandTotal.toFixed(2)).replace('{name}', customer.name));
+                onClose(); 
+            } else {
+                setApiError(result.error || "Failed to process quick cash payment.");
+            }
         }
     };
 
@@ -178,7 +197,25 @@ const KhataDetailModal: React.FC<{
             onClose();
         } else {
             setApiError(result.error || "Failed to process payment.");
-            setIsPaymentModalOpen(false); // Close payment modal but keep detail modal open to show error
+            setIsPaymentModalOpen(false);
+        }
+    };
+
+    // SAFETY: Delete Confirmation
+    const handleDeleteTransaction = (txnId: string) => {
+        if (window.confirm(t.confirm_delete_txn_desc)) {
+            deleteKhataTransaction(customer?.id || '', txnId);
+        }
+    };
+
+    // SAFETY: Unsaved Changes Confirmation
+    const handleSafeClose = () => {
+        if (todaysBillItems.length > 0) {
+            if (window.confirm(t.confirm_discard_bill)) {
+                onClose();
+            }
+        } else {
+            onClose();
         }
     };
 
@@ -198,7 +235,7 @@ const KhataDetailModal: React.FC<{
             <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col h-[95vh] relative">
                  <div className="flex justify-between items-center mb-4 pb-3 border-b">
                     <h2 className="text-xl font-bold">{t.khata_detail_title}</h2>
-                    <button onClick={onClose}><X /></button>
+                    <button onClick={handleSafeClose} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto pb-56">
                     <div className="bg-gray-50 rounded-lg p-4 mb-4">
@@ -213,14 +250,15 @@ const KhataDetailModal: React.FC<{
                             <p className="text-xl font-bold text-red-600">रू {previousDue.toFixed(2)}</p>
                         </div>
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-                             <p className="text-xs text-blue-800 font-medium">{t.todays_bill}</p>
+                             {/* TERMINOLOGY: Updated to Current Bill */}
+                             <p className="text-xs text-blue-800 font-medium">{t.current_bill}</p>
                              <p className="text-xl font-bold text-blue-600">रू {todaysBillTotal.toFixed(2)}</p>
                         </div>
                     </div>
                     
                      {todaysBillItems.length > 0 && (
                         <div className="mb-4">
-                            <h3 className="font-bold text-lg mb-2 flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-gray-600"/>{t.todays_bill}</h3>
+                            <h3 className="font-bold text-lg mb-2 flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-gray-600"/> {t.current_bill}</h3>
                             <div className="space-y-2 max-h-40 overflow-y-auto bg-white p-2 rounded-lg border">
                                 {todaysBillItems.map(item => (
                                     <div key={item.id} className="flex justify-between items-center text-sm p-1">
@@ -245,7 +283,12 @@ const KhataDetailModal: React.FC<{
                                     <p className={`font-bold text-sm ${txn.type === 'debit' ? 'text-red-600' : 'text-green-700'}`}>
                                         {txn.type === 'debit' ? '+' : '-'} रू {txn.amount.toFixed(2)}
                                     </p>
-                                    <button onClick={() => deleteKhataTransaction(customer.id, txn.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity">
+                                    {/* MOBILE UX: Always visible button, padding for touch target */}
+                                    <button 
+                                        onClick={() => handleDeleteTransaction(txn.id)} 
+                                        className="text-gray-400 hover:text-red-600 p-3 transition-colors"
+                                        aria-label={t.confirm_delete_txn_title}
+                                    >
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                 </div>
@@ -265,7 +308,7 @@ const KhataDetailModal: React.FC<{
                         <span className="text-lg font-bold text-gray-800">{t.grand_total}</span>
                         <span className="text-2xl font-extrabold text-purple-600">रू {grandTotal.toFixed(2)}</span>
                     </div>
-                     <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button 
                             onClick={handleAddItems} 
                             disabled={todaysBillItems.length === 0}
@@ -318,35 +361,38 @@ const KhataListView: React.FC<{
     const { language, khataCustomers } = useKirana();
     const t = translations[language];
 
-    const calculateBalance = (customer: KhataCustomer) => {
-        return customer.transactions.reduce((balance, txn) => {
-            return txn.type === 'debit' ? balance + txn.amount : balance - txn.amount;
-        }, 0);
-    };
+    // PERFORMANCE: Calculated balances memoized
+    const customersWithBalance = useMemo(() => {
+        return khataCustomers.map(customer => {
+            const balance = customer.transactions.reduce((acc, txn) => {
+                return txn.type === 'debit' ? acc + txn.amount : acc - txn.amount;
+            }, 0);
+            return { ...customer, balance };
+        });
+    }, [khataCustomers]);
     
     return (
         <div className="relative pb-20">
-            {khataCustomers.length === 0 ? (
+            {customersWithBalance.length === 0 ? (
                  <div className="text-center p-16 text-gray-500 bg-white rounded-xl shadow-sm">
                     <p>{t.no_khatas}</p>
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {khataCustomers.map(customer => {
-                        const balance = calculateBalance(customer);
-                        return (
-                             <div key={customer.id} onClick={() => onSelectCustomer(customer)} className="bg-white rounded-xl p-4 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors">
-                                <div>
-                                    <p className="font-bold text-gray-800">{customer.name}</p>
-                                    <p className="text-sm text-gray-500">{customer.address}</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className={`font-bold ${balance > 0 ? 'text-red-600' : 'text-green-700'}`}>रू {balance.toFixed(2)}</p>
-                                    <p className="text-xs text-gray-500">{balance > 0 ? t.due : t.paid}</p>
-                                </div>
+                    {customersWithBalance.map(customer => (
+                         <div key={customer.id} onClick={() => onSelectCustomer(customer)} className="bg-white rounded-xl p-4 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors">
+                            <div>
+                                <p className="font-bold text-gray-800">{customer.name}</p>
+                                <p className="text-sm text-gray-500">{customer.address}</p>
                             </div>
-                        )
-                    })}
+                            <div className="text-right">
+                                <p className={`font-bold ${customer.balance > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                                    रू {customer.balance.toFixed(2)}
+                                </p>
+                                <p className="text-xs text-gray-500">{customer.balance > 0 ? t.due : t.paid}</p>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
             
