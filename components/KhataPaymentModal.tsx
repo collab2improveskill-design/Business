@@ -1,4 +1,4 @@
-// v2.1 - Critical Update: Implemented Smart Payment Chips and Quick Cash features for advanced Khata settlement. Resolved deployment/sync issue to ensure features were live. QA verified.
+
 import React, { useState, useEffect } from 'react';
 import { X, DollarSign, QrCode } from 'lucide-react';
 import { translations } from '../translations';
@@ -10,11 +10,20 @@ interface KhataPaymentModalProps {
     grandTotal: number;
     todaysBillTotal: number;
     language: 'ne' | 'en';
+    defaultSelection?: 'today' | 'grand';
 }
 
 type ChipSelection = 'today' | 'grand' | 'custom';
 
-const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({ isOpen, onClose, onConfirmPayment, grandTotal, todaysBillTotal, language }) => {
+const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({ 
+    isOpen, 
+    onClose, 
+    onConfirmPayment, 
+    grandTotal, 
+    todaysBillTotal, 
+    language,
+    defaultSelection = 'grand'
+}) => {
     const [amountToPay, setAmountToPay] = useState(grandTotal.toFixed(2));
     const [selectedChip, setSelectedChip] = useState<ChipSelection>('grand');
     const [selectedMethod, setSelectedMethod] = useState<'cash' | 'qr' | null>(null);
@@ -22,11 +31,15 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({ isOpen, onClose, 
 
     useEffect(() => {
         if (isOpen) {
-            setAmountToPay(grandTotal.toFixed(2));
-            setSelectedChip('grand');
+            setSelectedChip(defaultSelection);
+            if (defaultSelection === 'today') {
+                setAmountToPay(todaysBillTotal.toFixed(2));
+            } else {
+                setAmountToPay(grandTotal.toFixed(2));
+            }
             setSelectedMethod(null);
         }
-    }, [isOpen, grandTotal]);
+    }, [isOpen, defaultSelection, todaysBillTotal, grandTotal]);
 
     if (!isOpen) return null;
 

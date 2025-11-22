@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle } from 'lucide-react';
+import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle, BookPlus, Wallet, Check, Coins, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { translations } from '../translations';
 import type { KhataCustomer, EditableBillItem } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
@@ -260,9 +260,18 @@ const KhataDetailModal: React.FC<{
     
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     
+    // --- Confirmation Flow State ---
+    const [isConfirmed, setIsConfirmed] = useState(false);
+    
     // Using Custom Hooks for cleaner logic
     const { items: billItems, addItem, addItems, updateItem, removeItem, clear, total: billTotal } = useBillingState();
     const { isListening, isProcessing, error: voiceError, toggleListening, setError } = useVoiceBilling(language, inventory, addItems);
+
+    // Validation
+    const isBillValid = useMemo(() => {
+        if (billItems.length === 0) return false;
+        return billItems.every(item => item.name && item.name.trim().length > 0 && parseFloat(item.quantity) > 0 && parseFloat(item.price) >= 0);
+    }, [billItems]);
 
     const previousDue = useMemo(() => {
         if (!customer) return 0;
@@ -273,35 +282,40 @@ const KhataDetailModal: React.FC<{
 
     const grandTotal = previousDue + billTotal;
 
+    // Logic to determine if "Receive Payment" in footer should be enabled
+    // 1. If bill has items: Must be confirmed first.
+    // 2. If bill is empty: Must have previous due.
+    const isPaymentEnabled = useMemo(() => {
+        if (billItems.length > 0) {
+            return isConfirmed;
+        }
+        return previousDue > 0;
+    }, [billItems.length, isConfirmed, previousDue]);
+
     // Reset state when modal opens
     useEffect(() => {
         if (isOpen) {
             clear();
             setError(null);
             setIsPaymentModalOpen(false);
+            setIsConfirmed(false);
         }
     }, [isOpen, clear, setError]);
+
+    // Auto-reset confirmation if user modifies bill after confirming (Safety)
+    useEffect(() => {
+        if (isConfirmed) setIsConfirmed(false);
+    }, [billItems]);
 
     const handleAddItemsToLedger = () => {
         if (!customer || billItems.length === 0) return;
         const result = handleAddItemsToKhata(customer.id, billItems);
         if(result.success) {
             clear();
+            setIsConfirmed(false);
+            onShowSuccess(t.save_khata);
         } else {
             setError(result.error || "Failed to add items.");
-        }
-    };
-
-    const handleQuickCash = () => {
-        if (!customer || grandTotal <= 0) return;
-        if (window.confirm(t.confirm_quick_cash.replace('{amount}', grandTotal.toFixed(2)))) {
-            const result = handleKhataSettlement(customer.id, billItems, grandTotal, 'cash');
-            if (result.success) {
-                onShowSuccess(t.quick_cash_success.replace('{amount}', grandTotal.toFixed(2)).replace('{name}', customer.name));
-                onClose(); 
-            } else {
-                setError(result.error || "Failed to process quick cash.");
-            }
         }
     };
 
@@ -336,6 +350,7 @@ const KhataDetailModal: React.FC<{
                 grandTotal={grandTotal}
                 todaysBillTotal={billTotal}
                 language={language}
+                defaultSelection={isConfirmed ? 'today' : 'grand'}
             />
             <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
                 <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col h-[95vh] relative">
@@ -360,30 +375,53 @@ const KhataDetailModal: React.FC<{
                             <span className="font-extrabold text-purple-600 text-xl">रू {billTotal.toFixed(2)}</span>
                         </div>
 
-                        <button 
-                            onClick={handleAddItemsToLedger}
-                            disabled={billItems.length === 0}
-                            className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-purple-700 transition-colors shadow-md disabled:bg-gray-300 disabled:cursor-not-allowed mb-6"
-                        >
-                            {t.confirm_bill}
-                        </button>
+                        {/* --- Two-Stage Confirmation UI (Billing Only) --- */}
+                        <div className="space-y-3 mb-6">
+                            {/* Stage 1: Confirm Bill */}
+                            {!isConfirmed && (
+                                <button 
+                                    onClick={() => setIsConfirmed(true)}
+                                    disabled={!isBillValid}
+                                    className="w-full bg-purple-600 text-white py-3.5 rounded-xl font-bold text-lg hover:bg-purple-700 transition-all shadow-md disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    <Check className="w-5 h-5" />
+                                    {t.confirm_bill}
+                                </button>
+                            )}
+                            
+                            {isConfirmed && (
+                                <p className="text-center text-xs text-gray-500 animate-pulse">
+                                    Bill locked. Select "Add to Khata" or "Receive Payment" below to proceed.
+                                </p>
+                            )}
+                        </div>
 
                         <h3 className="font-bold text-lg mb-2">{t.transaction_history}</h3>
                         <div className="space-y-2">
                             {/* Robust Sorting: Newest First */}
                             {customer.transactions.slice().sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(txn => (
-                                 <div key={txn.id} className={`group p-3 rounded-lg flex justify-between items-center ${txn.type === 'debit' ? 'bg-red-50' : 'bg-green-50'}`}>
-                                    <div>
-                                        <p className="font-medium text-gray-800 text-sm">{txn.description}</p>
-                                        <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
+                                <div key={txn.id} className="group p-3 rounded-lg flex justify-between items-center bg-white border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center ${txn.type === 'debit' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                             {txn.type === 'debit' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+                                        </div>
+                                        <div>
+                                            <p className="font-medium text-gray-800 text-sm">{txn.description}</p>
+                                            <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
+                                        </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <p className={`font-bold text-sm ${txn.type === 'debit' ? 'text-red-600' : 'text-green-700'}`}>
-                                            {txn.type === 'debit' ? '+' : '-'} रू {txn.amount.toFixed(2)}
-                                        </p>
+                                        <div className="text-right">
+                                            <p className={`font-bold text-sm ${txn.type === 'debit' ? 'text-red-600' : 'text-green-600'}`}>
+                                                रू {txn.amount.toFixed(2)}
+                                            </p>
+                                            <p className={`text-[10px] font-bold uppercase ${txn.type === 'debit' ? 'text-red-400' : 'text-green-500'}`}>
+                                                 {txn.type === 'debit' ? t.due : t.paid}
+                                            </p>
+                                        </div>
                                         <button 
                                             onClick={() => { if (window.confirm(t.confirm_delete_txn_desc)) deleteKhataTransaction(customer.id, txn.id); }} 
-                                            className="text-gray-400 hover:text-red-600 p-3 transition-colors"
+                                            className="text-gray-300 hover:text-red-600 p-2 transition-colors"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -407,26 +445,41 @@ const KhataDetailModal: React.FC<{
                         </div>
                     )}
                     
-                    <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t-2 shadow-lg rounded-t-xl z-10">
-                        <div className="flex justify-between items-center mb-3">
-                            <span className="text-lg font-bold text-gray-800">{t.grand_total}</span>
-                            <span className="text-2xl font-extrabold text-purple-600">रू {grandTotal.toFixed(2)}</span>
-                        </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button 
-                                onClick={() => setIsPaymentModalOpen(true)}
-                                disabled={grandTotal <= 0}
-                                className="col-span-1 w-full py-3 rounded-lg text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition-colors disabled:bg-gray-300"
-                            >
-                                {t.receive_payment}
-                            </button>
-                             <button 
-                                onClick={handleQuickCash}
-                                disabled={grandTotal <= 0}
-                                className="col-span-1 w-full py-3 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 transition-colors disabled:bg-gray-300"
-                            >
-                                {t.quick_cash}
-                            </button>
+                    {/* Static Footer for Total and Payment */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-white p-4 border-t shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] rounded-t-xl z-10">
+                        <div className="flex flex-col gap-3">
+                            {/* Total Row */}
+                            <div className="flex justify-between items-end">
+                                 <div>
+                                    <span className="text-xs text-gray-500 uppercase font-bold block">{t.grand_total}</span>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-2xl font-extrabold text-gray-800">रू {grandTotal.toFixed(2)}</p>
+                                        {isConfirmed && <span className="px-2 py-0.5 rounded-md bg-green-100 text-green-700 text-xs font-bold">Locked</span>}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Action Buttons Row */}
+                            <div className="flex gap-3">
+                                {isConfirmed && (
+                                    <button 
+                                        onClick={handleAddItemsToLedger}
+                                        className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <BookPlus className="w-5 h-5" />
+                                        {t.add_to_khata}
+                                    </button>
+                                )}
+                                
+                                <button 
+                                    onClick={() => setIsPaymentModalOpen(true)}
+                                    disabled={!isPaymentEnabled}
+                                    className={`bg-blue-600 text-white py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${isConfirmed ? 'flex-1' : 'w-full'}`}
+                                >
+                                    <Coins className="w-5 h-5" />
+                                    {t.receive_payment}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
