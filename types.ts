@@ -84,6 +84,10 @@ export interface KhataTransaction {
   amount: number;
   type: 'debit' | 'credit'; // debit = customer owes more, credit = customer paid
   items: Pick<EditableBillItem, 'inventoryId' | 'quantity' | 'name'>[];
+  meta?: {
+    previousDue?: number;
+    remainingDue?: number;
+  };
 }
 
 export interface KhataCustomer {

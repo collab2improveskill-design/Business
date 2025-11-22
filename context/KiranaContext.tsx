@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { INITIAL_INVENTORY_ITEMS, INITIAL_TRANSACTIONS, INITIAL_KHATA_CUSTOMERS } from '../constants';
 import { translations } from '../translations';
@@ -17,7 +18,7 @@ interface KiranaContextType {
     // Actions
     addStock: (items: { inventoryId?: string; quantity: string | number, name: string }[]) => void;
     handleConfirmSale: (billItems: EditableBillItem[], customerName: string, totalAmount: number, paymentMethod: 'cash' | 'qr' | 'credit', customerId?: string) => { success: boolean, error?: string };
-    handleKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr') => { success: boolean, error?: string };
+    handleKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr', previousDueOverride?: number) => { success: boolean, error?: string };
     handleAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
     deleteTransaction: (transactionId: string) => void;
     deleteKhataTransaction: (customerId: string, transactionId: string) => void;
@@ -185,7 +186,8 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         customerId: string,
         billItems: EditableBillItem[],
         amountPaid: number,
-        paymentMethod: 'cash' | 'qr'
+        paymentMethod: 'cash' | 'qr',
+        previousDueOverride?: number
     ): { success: boolean, error?: string } => {
         const t = translations[language];
         const stockDeductionResult = deductStock(billItems);
@@ -197,11 +199,26 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     const newTransactions: KhataTransaction[] = [];
                     const billTotal = billItems.reduce((sum, item) => sum + (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0), 0);
 
+                    // Capture current time base to ensure ordering
+                    const now = new Date();
+                    const billDate = now.toISOString();
+                    // Add 1 second to payment date so it is strictly "after" the bill in time sorting
+                    const paymentDate = new Date(now.getTime() + 1000).toISOString();
+                    
+                    // Calculate balance snapshot
+                    // If previousDueOverride is passed, use it (useful for UI consistency), otherwise recalculate from history
+                    let currentBalance = previousDueOverride ?? cust.transactions.reduce((acc, txn) =>
+                        txn.type === 'debit' ? acc + txn.amount : acc - txn.amount
+                    , 0);
+
+                    let balanceAfterBill = currentBalance;
+
                     if (billItems.length > 0) {
+                        balanceAfterBill += billTotal;
                         const description = billItems.map(item => `${item.name} (${item.quantity} ${item.unit})`).join(', ');
                         newTransactions.push({
                             id: `k-txn-${Date.now()}`,
-                            date: new Date().toISOString(),
+                            date: billDate,
                             description,
                             amount: billTotal,
                             type: 'debit',
@@ -209,13 +226,19 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                         });
                     }
                     
+                    const remainingDue = balanceAfterBill - amountPaid;
+
                     newTransactions.push({
                         id: `k-txn-${Date.now() + 1}`,
-                        date: new Date().toISOString(),
+                        date: paymentDate,
                         description: t.payment_received_desc,
                         amount: amountPaid,
                         type: 'credit',
-                        items: []
+                        items: [],
+                        meta: {
+                            previousDue: balanceAfterBill,
+                            remainingDue: remainingDue
+                        }
                     });
 
                     return { ...cust, transactions: [...newTransactions, ...cust.transactions] };

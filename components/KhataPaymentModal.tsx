@@ -31,8 +31,13 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
 
     useEffect(() => {
         if (isOpen) {
-            setSelectedChip(defaultSelection);
-            if (defaultSelection === 'today') {
+            // Smart selection logic:
+            // If default is 'today' AND todaysBillTotal > 0, select 'today'
+            // Otherwise fall back to 'grand'
+            const initialSelection = (defaultSelection === 'today' && todaysBillTotal > 0) ? 'today' : 'grand';
+            
+            setSelectedChip(initialSelection);
+            if (initialSelection === 'today') {
                 setAmountToPay(todaysBillTotal.toFixed(2));
             } else {
                 setAmountToPay(grandTotal.toFixed(2));
@@ -83,9 +88,11 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
                 <div className="mb-4">
                     <label className="text-sm font-medium text-gray-600 mb-2 block">{t.select_amount_to_pay}</label>
                     <div className="flex gap-2">
-                        <button onClick={() => handleChipClick('today')} className={chipStyle(selectedChip === 'today')}>
-                            {t.pay_todays_bill.replace('{amount}', todaysBillTotal.toFixed(0))}
-                        </button>
+                        {todaysBillTotal > 0 && (
+                            <button onClick={() => handleChipClick('today')} className={chipStyle(selectedChip === 'today')}>
+                                {t.pay_todays_bill.replace('{amount}', todaysBillTotal.toFixed(0))}
+                            </button>
+                        )}
                          <button onClick={() => handleChipClick('grand')} className={chipStyle(selectedChip === 'grand')}>
                             {t.pay_grand_total.replace('{amount}', grandTotal.toFixed(0))}
                         </button>
