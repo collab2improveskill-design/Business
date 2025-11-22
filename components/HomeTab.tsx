@@ -159,8 +159,17 @@ const HomeTab: React.FC<HomeTabProps> = ({ onInitiatePayment, onNavigateToInvent
         setBillItems([]);
         setCustomerName('');
         setApiError(null);
-        recognitionRef.current.start();
-        setIsListening(true);
+        try {
+            recognitionRef.current.start();
+            setIsListening(true);
+        } catch (err: any) {
+             // If it's already started, just sync state
+             if (err.name === 'InvalidStateError' || err.message?.includes('already started')) {
+                 setIsListening(true);
+             } else {
+                 throw err;
+             }
+        }
       }
     } catch (e) {
       console.error("Error toggling speech recognition:", e);

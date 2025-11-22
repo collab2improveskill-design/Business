@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle, BookPlus, Wallet, Check, Coins, ArrowUpRight, ArrowDownLeft, CheckCheck, Clock, AlertCircle, Sparkles, PartyPopper } from 'lucide-react';
+import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle, BookPlus, Wallet, Check, Coins, ArrowUpRight, ArrowDownLeft, CheckCheck, Clock, AlertCircle, Sparkles, PartyPopper, ArrowUp, ArrowDown } from 'lucide-react';
 import { translations } from '../translations';
 import type { KhataCustomer, EditableBillItem, KhataTransaction } from '../types';
 import { parseBillingFromVoice } from '../services/geminiService';
@@ -142,8 +142,16 @@ const useVoiceBilling = (language: 'ne' | 'en', inventory: any, onItemsParsed: (
                 setIsListening(false);
             } else {
                 setError(null);
-                recognitionRef.current.start();
-                setIsListening(true);
+                try {
+                    recognitionRef.current.start();
+                    setIsListening(true);
+                } catch (err: any) {
+                     if (err.name === 'InvalidStateError' || err.message?.includes('already started')) {
+                         setIsListening(true);
+                    } else {
+                        throw err;
+                    }
+                }
             }
         } catch (e) {
             console.error(e);
@@ -274,13 +282,42 @@ const KhataDetailModal: React.FC<{
         return billItems.every(item => item.name && item.name.trim().length > 0 && parseFloat(item.quantity) > 0 && parseFloat(item.price) >= 0);
     }, [billItems]);
 
-    const previousDue = useMemo(() => {
-        if (!customer) return 0;
-        return customer.transactions.reduce((balance, txn) => {
-            return txn.type === 'debit' ? balance + txn.amount : balance - txn.amount;
-        }, 0);
+    // Calculate real-time total due based on the algorithm (Requirement 1)
+    // We do NOT trust the meta. We recalculate.
+    const transactionsWithBalance = useMemo(() => {
+        if (!customer) return [];
+
+        // 1. Sort Chronologically (Oldest First)
+        const sorted = [...customer.transactions].sort((a, b) => 
+            new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+
+        let runningBalance = 0;
+
+        // 2. Calculate Running Balance
+        const calculated = sorted.map(txn => {
+            const previousBalance = runningBalance;
+            
+            if (txn.type === 'debit') {
+                // Sale: Debt Increases
+                runningBalance += txn.amount;
+            } else {
+                // Payment: Debt Decreases
+                runningBalance -= txn.amount;
+            }
+
+            return {
+                ...txn,
+                calcPrev: previousBalance,
+                calcNew: runningBalance
+            };
+        });
+
+        // 3. Reverse for Display (Newest First)
+        return calculated.reverse();
     }, [customer]);
 
+    const previousDue = transactionsWithBalance.length > 0 ? transactionsWithBalance[0].calcNew : 0;
     const grandTotal = previousDue + billTotal;
 
     // Logic to determine if "Receive Payment" in footer should be enabled
@@ -290,70 +327,6 @@ const KhataDetailModal: React.FC<{
         }
         return previousDue > 0;
     }, [billItems.length, isConfirmed, previousDue]);
-
-    // Smart Grouping Logic
-    const groupedTransactions = useMemo(() => {
-        if (!customer) return [];
-        
-        // SORTING STRATEGY:
-        // 1. Primary: Time Descending (Newest first).
-        // 2. Secondary: If timestamps are very close (within 1s), prioritize Credit (Payment) on top.
-        const sorted = [...customer.transactions].sort((a, b) => {
-            const timeA = new Date(a.date).getTime();
-            const timeB = new Date(b.date).getTime();
-            
-            if (Math.abs(timeA - timeB) > 1000) {
-                return timeB - timeA; 
-            }
-            
-            // If within 1 second, prioritize Credit (Payment) as "Newer/Top"
-            if (a.type === 'credit' && b.type === 'debit') return -1;
-            if (a.type === 'debit' && b.type === 'credit') return 1;
-            
-            return timeB - timeA; 
-        });
-
-        const grouped: any[] = [];
-        const processedIds = new Set<string>();
-
-        for (let i = 0; i < sorted.length; i++) {
-            const current = sorted[i];
-            if (processedIds.has(current.id)) continue;
-
-            // Check for a "Linked" Pair: Current is Payment (Credit), Next is Bill (Debit)
-            if (current.type === 'credit') {
-                const next = sorted[i + 1];
-                if (next && next.type === 'debit' && !processedIds.has(next.id)) {
-                    const timeDiff = Math.abs(new Date(current.date).getTime() - new Date(next.date).getTime());
-                    // 15 minute window for grouping logic
-                    if (timeDiff < 900000) { 
-                        grouped.push({
-                            type: 'linked',
-                            id: `group-${current.id}`,
-                            date: current.date,
-                            payment: current,
-                            bill: next,
-                            idsToDelete: [current.id, next.id]
-                        });
-                        processedIds.add(current.id);
-                        processedIds.add(next.id);
-                        continue;
-                    }
-                }
-            }
-
-            // Default: Single transaction
-            grouped.push({
-                type: 'single',
-                id: current.id,
-                date: current.date,
-                data: current,
-                idsToDelete: [current.id]
-            });
-            processedIds.add(current.id);
-        }
-        return grouped;
-    }, [customer]);
 
     // Reset state when modal opens
     useEffect(() => {
@@ -385,14 +358,11 @@ const KhataDetailModal: React.FC<{
 
     const handleConfirmPayment = (amountPaid: number, paymentMethod: 'cash' | 'qr') => {
         if(!customer) return;
-        // Pass current calculated grandTotal as override to ensure exact match in history if needed,
-        // although handleKhataSettlement recalculates.
+        // Pass current calculated grandTotal as override to ensure exact match in history if needed
         const result = handleKhataSettlement(customer.id, billItems, amountPaid, paymentMethod, grandTotal);
         
         if(result.success) {
             setIsPaymentModalOpen(false);
-            // Check if full payment
-            // Floating point tolerance
             if (amountPaid >= grandTotal - 0.1) {
                 setShowThankYou(true);
             } else {
@@ -502,90 +472,46 @@ const KhataDetailModal: React.FC<{
 
                         <h3 className="font-bold text-lg mb-2">{t.transaction_history}</h3>
                         <div className="space-y-2">
-                            {/* Grouped Transaction List */}
-                            {groupedTransactions.map(group => {
-                                if (group.type === 'linked') {
-                                    const { bill, payment, idsToDelete } = group;
-                                    const billAmt = bill.amount;
-                                    const paidAmt = payment.amount;
-                                    
-                                    // Math Calculation for Display
-                                    // We prioritize metadata if available for accuracy, otherwise fallback to logic
-                                    const metaPreviousDue = payment.meta?.previousDue ?? (billAmt + (payment.amount - billAmt)); // Approximate fallback
-                                    const metaRemaining = payment.meta?.remainingDue ?? (metaPreviousDue - paidAmt);
-                                    
-                                    const isFullyPaid = Math.abs(metaRemaining) < 0.1;
+                            {/* Bank Statement Style Transaction List */}
+                            {transactionsWithBalance.map(txn => {
+                                const isPayment = txn.type === 'credit';
 
-                                    return (
-                                        <div key={group.id} className="group p-3 rounded-lg flex justify-between items-center bg-white border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
-                                             <div className="flex items-center gap-3">
-                                                <div className={`w-9 h-9 rounded-full flex items-center justify-center ${isFullyPaid ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                                                     {isFullyPaid ? <CheckCheck className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium text-gray-800 text-sm">{bill.description || 'Bill Items'}</p>
-                                                    <p className="text-xs text-gray-500">{formatDateTime(group.date, language)}</p>
-                                                    {/* Smart Math Display */}
-                                                    <p className="text-[11px] text-gray-500 font-mono mt-1 bg-gray-50 px-1 rounded inline-block">
-                                                        Bill: {billAmt.toFixed(0)} - Paid: {paidAmt.toFixed(0)} = Rem: <span className={metaRemaining > 0 ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>{metaRemaining.toFixed(0)}</span>
-                                                    </p>
-                                                </div>
-                                             </div>
-                                             <div className="flex items-center gap-2">
-                                                <div className="text-right">
-                                                    <p className="font-bold text-sm text-green-600">Rs {paidAmt.toFixed(0)}</p>
-                                                    <p className="text-[10px] font-bold uppercase text-green-500">{t.paid}</p>
-                                                </div>
-                                                <button 
-                                                     onClick={() => { if (window.confirm(t.confirm_delete_txn_desc)) idsToDelete.forEach((id: string) => deleteKhataTransaction(customer.id, id)); }} 
-                                                     className="text-gray-300 hover:text-red-600 p-2 transition-colors"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                             </div>
-                                        </div>
-                                    );
-                                } else {
-                                    // Single Transaction Render
-                                    const txn = group.data as KhataTransaction;
-                                    const isPayment = txn.type === 'credit';
-                                    
-                                    return (
-                                        <div key={txn.id} className="group p-3 rounded-lg flex justify-between items-center bg-white border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-9 h-9 rounded-full flex items-center justify-center ${!isPayment ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                                                     {!isPayment ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium text-gray-800 text-sm">{txn.description}</p>
-                                                    <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
-                                                    {/* Show Math for Payment if Meta exists */}
-                                                    {isPayment && txn.meta && (
-                                                        <p className="text-[11px] text-gray-500 font-mono mt-1 bg-gray-50 px-1 rounded inline-block">
-                                                            Due: {txn.meta.previousDue?.toFixed(0)} - Paid: {txn.amount.toFixed(0)} = Rem: <span className={(txn.meta.remainingDue || 0) > 0 ? 'text-red-500 font-bold' : 'text-green-600 font-bold'}>{txn.meta.remainingDue?.toFixed(0)}</span>
-                                                        </p>
-                                                    )}
-                                                </div>
+                                return (
+                                    <div key={txn.id} className="group p-3 rounded-xl flex justify-between items-start bg-white border border-gray-100 mb-2 shadow-sm hover:shadow-md transition-all">
+                                        {/* Left Side: Context */}
+                                        <div className="flex items-start gap-3">
+                                            <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isPayment ? 'bg-green-100' : 'bg-red-50'}`}>
+                                                 {isPayment ? <ArrowDown className="w-4 h-4 text-green-600" /> : <ArrowUp className="w-4 h-4 text-red-500" />}
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="text-right">
-                                                    <p className={`font-bold text-sm ${!isPayment ? 'text-red-600' : 'text-green-600'}`}>
-                                                        रू {txn.amount.toFixed(2)}
-                                                    </p>
-                                                    <p className={`text-[10px] font-bold uppercase ${!isPayment ? 'text-red-400' : 'text-green-500'}`}>
-                                                         {!isPayment ? t.due : t.paid}
-                                                    </p>
-                                                </div>
-                                                <button 
-                                                    onClick={() => { if (window.confirm(t.confirm_delete_txn_desc)) deleteKhataTransaction(customer.id, txn.id); }} 
-                                                    className="text-gray-300 hover:text-red-600 p-2 transition-colors"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
+                                            <div>
+                                                <p className="font-semibold text-gray-800 text-sm leading-tight line-clamp-2">
+                                                    {txn.description || (isPayment ? t.payment_received_desc : 'Goods Purchased')}
+                                                </p>
+                                                <p className="text-[10px] text-gray-400 font-medium mt-1">
+                                                    {formatDateTime(txn.date, language)}
+                                                </p>
                                             </div>
                                         </div>
-                                    );
-                                }
+
+                                        {/* Right Side: Financials */}
+                                        <div className="flex items-start gap-2 pl-2">
+                                            <div className="text-right whitespace-nowrap">
+                                                <p className={`font-bold text-sm ${isPayment ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {isPayment ? '-' : '+'} रू {txn.amount.toFixed(0)}
+                                                </p>
+                                                <p className="text-[11px] font-bold text-gray-400 mt-0.5">
+                                                    Bal: {txn.calcNew.toFixed(0)}
+                                                </p>
+                                            </div>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); if (window.confirm(t.confirm_delete_txn_desc)) deleteKhataTransaction(customer.id, txn.id); }} 
+                                                className="text-gray-300 hover:text-red-500 p-1 -mt-1 -mr-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
                             })}
                         </div>
                     </div>

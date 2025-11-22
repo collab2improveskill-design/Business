@@ -145,7 +145,7 @@ export const translations = {
     no_customers_yet: "अहिलेसम्म कुनै ग्राहक छैन। सुरु गर्न माथि 'नयाँ खाता खोल्नुहोस्' मा ट्याप गर्नुहोस्।",
     no_customers_found: "तपाईंको खोजीको लागि कुनै ग्राहक भेटिएन।",
     previous_due: "पहिलेको बाँकी",
-    todays_bill: "आजको बिल", // Legacy key, kept for safety
+    todays_bill: "आजको बिल", 
     current_bill: "हालको बिल",
     grand_total: "कुल जम्मा",
     add_to_khata: "खातामा थप्नुहोस्",
@@ -164,6 +164,15 @@ export const translations = {
     selected: "छानिएको",
     delete_customer_warning: "चेतावनी: छानिएका ग्राहकहरूको बाँकी रकम रु {amount} छ। मेटाउँदा यी रेकर्डहरू सधैंको लागि हट्नेछन्। के तपाईं निश्चित हुनुहुन्छ?",
     add_item_placeholder: "सामानको नाम",
+    
+    // Payment Modal New Logic
+    settle_current_bill: "हालको बिल भुक्तानी",
+    pay_previous_due: "पुरानो बाँकी भुक्तानी",
+    math_new_balance: "नयाँ कुल बाँकी",
+    math_added_to_due: "खातामा थपिने",
+    math_bill_settled: "बिल चुक्ता भयो",
+    math_advance: "अग्रिम / फिर्ता",
+    enter_amount: "रकम प्रविष्ट गर्नुहोस्",
     
     // Payment Modal
     confirm_bill: "बिल पक्का गर्नुहोस्",
@@ -322,7 +331,7 @@ export const translations = {
     no_customers_yet: "No customers yet. Tap 'Add New Khata' above to add your first one.",
     no_customers_found: "No customers found for your search.",
     previous_due: "Previous Due",
-    todays_bill: "Today's Bill", // Legacy key
+    todays_bill: "Today's Bill", 
     current_bill: "Current Bill",
     grand_total: "Grand Total",
     add_to_khata: "Add to Khata",
@@ -341,6 +350,15 @@ export const translations = {
     selected: "Selected",
     delete_customer_warning: "Warning: Selected customers have a remaining balance of Rs {amount}. Deleting will remove these records permanently. Are you sure?",
     add_item_placeholder: "Item name",
+
+    // Payment Modal New Logic
+    settle_current_bill: "Settle Current Bill",
+    pay_previous_due: "Pay Previous Due",
+    math_new_balance: "New Total Balance",
+    math_added_to_due: "Added to Due",
+    math_bill_settled: "Bill Settled",
+    math_advance: "Advance / Change",
+    enter_amount: "Enter Amount",
 
     // Payment Modal
     confirm_bill: "Confirm Bill",

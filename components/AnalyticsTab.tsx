@@ -1,10 +1,11 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp, ArrowUpRight, CheckCheck, Trash2 } from 'lucide-react';
 import { translations } from '../translations';
 import type { UnifiedTransaction } from '../types';
 import ConfirmationModal from './ConfirmationModal';
 import { useKirana } from '../context/KiranaContext';
+import { formatDateTime } from '../utils';
 
 // --- Constants & Configuration ---
 const COLORS = {
@@ -1134,29 +1135,43 @@ const AnalyticsTab: React.FC = () => {
                             {filteredTransactions.length > 0 ? filteredTransactions.slice().reverse().map(txn => {
                                 const isCredit = txn.type === 'credit';
                                 const isQr = txn.type === 'qr';
-                                const isCash = txn.type === 'cash';
                                 
-                                let amountColor = 'text-gray-800';
-                                if (isCredit) amountColor = 'text-red-700 bg-red-50 px-2 py-0.5 rounded';
-                                if (isQr) amountColor = 'text-sky-700';
-                                if (isCash) amountColor = 'text-green-700';
+                                const Icon = isCredit ? ArrowUpRight : CheckCheck;
+                                const iconBg = isCredit ? 'bg-red-100 text-red-600' : (isQr ? 'bg-sky-100 text-sky-600' : 'bg-green-100 text-green-600');
+                                const amountClass = isCredit ? 'text-red-600' : (isQr ? 'text-sky-600' : 'text-green-600');
+                                const statusLabel = isCredit ? t.due : t.paid;
+                                const statusLabelColor = isCredit ? 'text-red-400' : 'text-green-500';
+                                
+                                // Detailed Math Logic for "Recent Sales"
+                                // Cash/QR: Bill = Paid = Amount, Rem = 0
+                                // Credit: Bill = Amount, Paid = 0, Rem = Amount
+                                const billAmt = txn.amount;
+                                const paidAmt = isCredit ? 0 : txn.amount;
+                                const remAmt = isCredit ? txn.amount : 0;
+                                const remColor = remAmt > 0 ? 'text-red-500' : 'text-green-600';
 
                                 return (
-                                    <div key={txn.id} className="bg-white rounded-xl p-3 shadow-sm flex justify-between items-center border border-transparent hover:border-purple-200 transition-all">
+                                    <div key={txn.id} className="group p-3 rounded-lg flex justify-between items-center bg-white border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                                         <div className="flex items-center gap-3">
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold shrink-0 ${isCredit ? 'bg-red-100 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
-                                                {txn.customerName.charAt(0)}
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${iconBg}`}>
+                                                <Icon className="w-5 h-5" />
                                             </div>
-                                            <div className="min-w-0">
-                                                <p className="font-bold text-gray-800 text-sm truncate">{txn.customerName}</p>
-                                                <p className="text-[11px] text-gray-400 mt-0.5 font-medium">
-                                                    {new Date(txn.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                            <div>
+                                                <p className="font-bold text-gray-800 text-sm">{txn.customerName}</p>
+                                                <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
+                                                <p className="text-[11px] text-gray-500 font-mono mt-1 bg-gray-50 px-1 rounded inline-block">
+                                                    Bill: {billAmt.toFixed(0)} - Paid: {paidAmt.toFixed(0)} = Rem: <span className={`${remColor} font-bold`}>{remAmt.toFixed(0)}</span>
                                                 </p>
                                             </div>
                                         </div>
-                                        <div className="text-right pl-2 shrink-0">
-                                            <span className={`font-bold text-sm ${amountColor}`}>Rs.{txn.amount.toFixed(0)}</span>
-                                            <p className="text-[10px] text-gray-400 mt-1 max-w-[100px] truncate">{txn.description || 'Items'}</p>
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-right">
+                                                <p className={`font-bold text-sm ${amountClass}`}>Rs. {txn.amount.toFixed(2)}</p>
+                                                <p className={`text-[10px] font-bold uppercase ${statusLabelColor}`}>{statusLabel}</p>
+                                            </div>
+                                             <button onClick={() => setConfirmDelete(txn)} className="text-gray-300 hover:text-red-600 p-2 transition-colors">
+                                                  <Trash2 className="w-4 h-4" />
+                                             </button>
                                         </div>
                                     </div>
                                 )

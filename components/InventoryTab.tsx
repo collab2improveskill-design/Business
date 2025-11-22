@@ -445,10 +445,19 @@ const InventoryTab: React.FC = () => {
         try {
             if (isVoiceSearching) { 
                 recognitionRef.current.stop(); 
+                setIsVoiceSearching(false);
             } else { 
                 setSearchTerm(''); 
-                recognitionRef.current.start(); 
-                setIsVoiceSearching(true); 
+                try {
+                    recognitionRef.current.start(); 
+                    setIsVoiceSearching(true); 
+                } catch (err: any) {
+                    if (err.name === 'InvalidStateError' || err.message?.includes('already started')) {
+                         setIsVoiceSearching(true);
+                    } else {
+                        throw err;
+                    }
+                }
             }
         } catch(e) {
             console.error("Error toggling speech recognition:", e);
