@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown } from 'lucide-react';
+import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle } from 'lucide-react';
 import type { InventoryItem, ParsedBillItemFromImage } from '../types';
 import { translations } from '../translations';
 import { parseInventoryFromImage } from '../services/geminiService';
@@ -167,8 +167,8 @@ const PriceHistoryModal: React.FC<{ item: InventoryItem | null, isOpen: boolean,
 
 
 // --- ManualAddItemModal ---
-const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (item: Omit<ParsedBillItemFromImage, 'id'>) => void, language: 'ne' | 'en' }> = ({ isOpen, onClose, onSave, language }) => {
-    const [item, setItem] = useState({ name: '', quantity: '', unit: '', price: '' });
+const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (item: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number }) => void, language: 'ne' | 'en' }> = ({ isOpen, onClose, onSave, language }) => {
+    const [item, setItem] = useState({ name: '', quantity: '', unit: '', price: '', lowStockThreshold: '10' });
     const t = translations[language];
     
     if (!isOpen) return null;
@@ -180,10 +180,11 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
             unit: item.unit,
             price: parseFloat(item.price) || 0, // This is purchase price
             suggestedCategory: 'Other',
+            lowStockThreshold: parseFloat(item.lowStockThreshold) || 5,
         };
         if (newItem.name && newItem.quantity > 0) {
             onSave(newItem);
-            setItem({ name: '', quantity: '', unit: '', price: '' });
+            setItem({ name: '', quantity: '', unit: '', price: '', lowStockThreshold: '10' });
             onClose();
         }
     };
@@ -200,7 +201,7 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
                         <label className="text-sm font-medium text-gray-600">{t.item_name}</label>
                         <input type="text" value={item.name} onChange={e => setItem({...item, name: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
                     </div>
-                     <div className="grid grid-cols-3 gap-2">
+                     <div className="grid grid-cols-2 gap-3">
                         <div>
                            <label className="text-sm font-medium text-gray-600">{t.stock}</label>
                            <input type="number" value={item.quantity} onChange={e => setItem({...item, quantity: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
@@ -209,9 +210,17 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
                            <label className="text-sm font-medium text-gray-600">{t.unit}</label>
                            <input type="text" value={item.unit} onChange={e => setItem({...item, unit: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
                         </div>
-                         <div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
                            <label className="text-sm font-medium text-gray-600">{t.purchase_price}</label>
                            <input type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
+                        </div>
+                        <div>
+                            <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                                {t.low_stock_threshold} <AlertTriangle className="w-3 h-3 text-orange-500" />
+                            </label>
+                            <input type="number" value={item.lowStockThreshold} onChange={e => setItem({...item, lowStockThreshold: e.target.value})} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 10" />
                         </div>
                     </div>
                 </div>
@@ -396,11 +405,17 @@ const InventoryTab: React.FC = () => {
     const [isVoiceSearching, setIsVoiceSearching] = useState(false);
     const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'stock' | 'category', direction: 'asc' | 'desc' } | null>({ key: 'name', direction: 'asc' });
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
+    
+    // Toggle State for View Mode
+    const [viewMode, setViewMode] = useState<'all' | 'low_stock'>('all');
 
     const t = translations[language];
     
     const recognitionRef = useRef<any>(null);
     
+    // Calculate Low Stock Count
+    const lowStockCount = useMemo(() => inventory.filter(i => i.stock <= i.lowStockThreshold).length, [inventory]);
+
     // Combined effect for lifecycle management and listener attachment to safe-guard against instance mismatch
     useEffect(() => {
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -468,6 +483,11 @@ const InventoryTab: React.FC = () => {
     const sortedAndFilteredInventory = useMemo(() => {
         let items = [...inventory];
 
+        // 1. Filter by View Mode (All vs Low Stock)
+        if (viewMode === 'low_stock') {
+            items = items.filter(item => item.stock <= item.lowStockThreshold);
+        }
+
         if (categoryFilter !== 'all') {
             items = items.filter(item => item.category === categoryFilter);
         }
@@ -485,7 +505,7 @@ const InventoryTab: React.FC = () => {
         }
 
         return items;
-    }, [inventory, searchTerm, sortConfig, categoryFilter]);
+    }, [inventory, searchTerm, sortConfig, categoryFilter, viewMode]);
     
     const requestSort = (key: 'name' | 'stock' | 'category') => {
         let direction: 'asc' | 'desc' = 'asc';
@@ -501,8 +521,10 @@ const InventoryTab: React.FC = () => {
         const now = new Date().toISOString();
 
         newItems.forEach(newItem => {
-          const { category, lowStockThreshold } = 'category' in newItem ? newItem : { category: 'Other', lowStockThreshold: 10 };
-
+          // Explicitly handle lowStockThreshold priority
+          const category = 'category' in newItem ? newItem.category : (newItem as any).suggestedCategory || 'Other';
+          const lowStockThreshold = 'lowStockThreshold' in newItem ? newItem.lowStockThreshold : (newItem as any).lowStockThreshold || 10;
+          
           const existingItemIndex = updatedInventory.findIndex(
             invItem => invItem.name.toLowerCase() === newItem.name.toLowerCase()
           );
@@ -539,7 +561,7 @@ const InventoryTab: React.FC = () => {
     };
 
     const handleSaveFromScan = (scannedItems: ReviewableItem[]) => { updateInventory(scannedItems); };
-    const handleSaveManualItem = (manualItem: Omit<ParsedBillItemFromImage, 'id'>) => { updateInventory([manualItem]); };
+    const handleSaveManualItem = (manualItem: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number }) => { updateInventory([manualItem]); };
     const handleOpenHistory = (item: InventoryItem) => { setSelectedItem(item); setModal('history'); };
     
   return (
@@ -552,6 +574,35 @@ const InventoryTab: React.FC = () => {
       <div className="space-y-6 pb-20">
         <h1 className="text-2xl font-bold text-gray-800">{t.inventory_management}</h1>
         
+        {/* New Toggle Control */}
+        <div className="bg-white p-1 rounded-xl shadow-sm flex gap-1 border border-gray-100">
+            <button
+                onClick={() => setViewMode('all')}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                    viewMode === 'all' 
+                        ? 'bg-purple-100 text-purple-700 shadow-sm' 
+                        : 'text-gray-500 hover:bg-gray-50'
+                }`}
+            >
+                {t.all_inventory_tab}
+            </button>
+            <button
+                onClick={() => setViewMode('low_stock')}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 relative ${
+                    viewMode === 'low_stock' 
+                        ? 'bg-red-50 text-red-600 shadow-sm ring-1 ring-red-100' 
+                        : 'text-gray-500 hover:bg-gray-50'
+                }`}
+            >
+                {t.low_stock_tab}
+                 {lowStockCount > 0 && (
+                    <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[1.2rem] flex items-center justify-center animate-pulse shadow-sm">
+                        {lowStockCount}
+                    </span>
+                 )}
+            </button>
+        </div>
+
         <div className="bg-white rounded-xl p-2 shadow-sm space-y-2">
           <div className="relative">
             <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -586,20 +637,35 @@ const InventoryTab: React.FC = () => {
                     </p>
                   </div>
                   <div className="col-span-1 text-right">
-                    <p className="font-bold text-sm">{item.stock} <span className="font-normal text-xs">{item.unit}</span></p>
+                    <p className={`font-bold text-sm ${item.stock <= item.lowStockThreshold ? 'text-red-600' : 'text-gray-800'}`}>
+                        {item.stock} <span className="font-normal text-xs">{item.unit}</span>
+                    </p>
                   </div>
                    <div className="col-span-1 text-right">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{item.category}</span>
                   </div>
               </div>
               )) : (
-                  <p className="p-4 text-center text-gray-500">{t.no_items_found}</p>
+                <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+                    {viewMode === 'low_stock' ? (
+                        <>
+                            <CheckCircle className="w-10 h-10 text-green-500 mb-2" />
+                            <p>{t.no_low_stock_items}</p>
+                        </>
+                    ) : (
+                        <p>{t.no_items_found}</p>
+                    )}
+                </div>
               )}
           </div>
         </div>
       </div>
       
-      <button onClick={() => setModal('choice')} className="fixed bottom-24 right-6 bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" aria-label={t.add_item_button}>
+      <button 
+        onClick={() => setModal('choice')} 
+        className={`fixed bottom-24 right-6 bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${viewMode === 'all' ? 'scale-100 opacity-100 translate-y-0' : 'scale-0 opacity-0 translate-y-10 pointer-events-none'}`}
+        aria-label={t.add_item_button}
+      >
         <Plus className="w-6 h-6" />
       </button>
     </>

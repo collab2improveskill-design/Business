@@ -1,4 +1,5 @@
 
+
 export const translations = {
   ne: {
     // General
@@ -108,6 +109,9 @@ export const translations = {
     purchase_date: "खरिद मिति",
     qty_bought: "खरिद मात्रा",
     price_paid_per_unit: "प्रति एकाइ मूल्य",
+    // New Translations for Inventory Toggle
+    all_inventory_tab: "सबै सामान (All)",
+    low_stock_tab: "कम स्टक (Low Stock)",
 
     // Karobar Tab & Khata
     khata_view: "खाता",
@@ -294,6 +298,9 @@ export const translations = {
     purchase_date: "Purchase Date",
     qty_bought: "Qty Bought",
     price_paid_per_unit: "Price/Unit",
+    // New Translations for Inventory Toggle
+    all_inventory_tab: "All Inventory",
+    low_stock_tab: "Low Stock",
 
     // Karobar Tab & Khata
     khata_view: "Khata",
