@@ -16,7 +16,7 @@ interface KiranaContextType {
     setKhataCustomers: React.Dispatch<React.SetStateAction<KhataCustomer[]>>;
     
     // Actions
-    addStock: (items: { inventoryId?: string; quantity: string | number, name: string }[]) => void;
+    addStock: (items: { inventoryId?: string; quantity: string | number, name: string, price?: number, supplier?: string, sellingPrice?: number }[]) => void;
     handleConfirmSale: (billItems: EditableBillItem[], customerName: string, totalAmount: number, paymentMethod: 'cash' | 'qr' | 'credit', customerId?: string) => { success: boolean, error?: string };
     handleKhataSettlement: (customerId: string, billItems: EditableBillItem[], amountPaid: number, paymentMethod: 'cash' | 'qr', previousDueOverride?: number) => { success: boolean, error?: string };
     handleAddItemsToKhata: (customerId: string, billItems: EditableBillItem[]) => { success: boolean, error?: string };
@@ -91,7 +91,7 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const toggleLanguage = () => setLanguage(prev => (prev === 'ne' ? 'en' : 'ne'));
 
     // --- Logic ---
-    const addStock = (items: { inventoryId?: string; quantity: string | number, name: string }[]) => {
+    const addStock = (items: { inventoryId?: string; quantity: string | number, name: string, price?: number, supplier?: string, sellingPrice?: number }[]) => {
         setInventory(currentInventory => {
             const inventoryMap = new Map<string, InventoryItem>(currentInventory.map(i => [i.id, { ...i }]));
             items.forEach(itemToAdd => {
@@ -100,6 +100,25 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     const quantity = typeof itemToAdd.quantity === 'string' ? parseFloat(itemToAdd.quantity) : itemToAdd.quantity;
                     itemToUpdate.stock += quantity || 0;
                     itemToUpdate.lastUpdated = new Date().toISOString();
+                    
+                    // Update Selling Price (MRP) if provided and valid
+                    if (itemToAdd.sellingPrice !== undefined && itemToAdd.sellingPrice > 0) {
+                        itemToUpdate.price = itemToAdd.sellingPrice;
+                    }
+                    
+                    // Logic to add to purchase history if cost price is provided
+                    if (itemToAdd.price) {
+                        itemToUpdate.purchasePriceHistory = [
+                            ...itemToUpdate.purchasePriceHistory,
+                            {
+                                price: itemToAdd.price, // This is Cost Price
+                                date: new Date().toISOString(),
+                                quantity: quantity || 0,
+                                supplier: itemToAdd.supplier
+                            }
+                        ];
+                    }
+
                     inventoryMap.set(itemToAdd.inventoryId, itemToUpdate);
                 }
             });

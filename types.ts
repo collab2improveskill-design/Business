@@ -50,6 +50,7 @@ export interface InventoryItem {
     price: number; // This is the PURCHASE price
     date: string; // ISO Date string
     quantity: number; // The quantity bought in this transaction
+    supplier?: string; // Added field to track vendor
   }[];
 }
 

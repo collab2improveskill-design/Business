@@ -112,6 +112,18 @@ export const translations = {
     // New Translations for Inventory Toggle
     all_inventory_tab: "सबै सामान (All)",
     low_stock_tab: "कम स्टक (Low Stock)",
+    supplier: "सप्लायर",
+    supplier_placeholder: "जस्तै: राम ट्रेडर्स",
+    last_buying_price: "अन्तिम खरिद मूल्य",
+    view_graph: "ग्राफ हेर्नुहोस्",
+    price_up: "मूल्य बढ्यो",
+    price_down: "मूल्य घट्यो",
+    stock_added_success: "स्टक सफलतापूर्वक थपियो",
+    selling_price_new: "नयाँ बिक्री मूल्य (MRP)",
+    margin: "मार्जिन",
+    profit: "नाफा",
+    loss: "घाटा",
+    current_mrp: "हालको MRP",
     
     // Bulk Order
     draft_order: "अर्डर ड्राफ्ट",
@@ -313,6 +325,18 @@ export const translations = {
     // New Translations for Inventory Toggle
     all_inventory_tab: "All Inventory",
     low_stock_tab: "Low Stock",
+    supplier: "Supplier",
+    supplier_placeholder: "e.g. Ram Traders",
+    last_buying_price: "Last Buying Price",
+    view_graph: "View Graph",
+    price_up: "Price Up",
+    price_down: "Price Down",
+    stock_added_success: "Stock added successfully",
+    selling_price_new: "New Selling Price (MRP)",
+    margin: "Margin",
+    profit: "Profit",
+    loss: "Loss",
+    current_mrp: "Current MRP",
     
     // Bulk Order
     draft_order: "Draft Order",

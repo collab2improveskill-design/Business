@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle, MessageCircle, ShoppingCart, Send, Copy, Share2, ClipboardCheck, Package } from 'lucide-react';
 import type { InventoryItem, ParsedBillItemFromImage } from '../types';
@@ -129,7 +128,7 @@ const PriceHistoryModal: React.FC<{ item: InventoryItem | null, isOpen: boolean,
 
     return (
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
-            <div className="bg-white w-full max-w-md rounded-2xl p-5 flex flex-col">
+            <div className="bg-white w-full max-w-md rounded-2xl p-5 flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold">{t.price_history_title}</h2>
                     <button onClick={onClose}><X/></button>
@@ -142,13 +141,14 @@ const PriceHistoryModal: React.FC<{ item: InventoryItem | null, isOpen: boolean,
                 )}
                 
                 <h3 className="font-bold text-lg mt-4 mb-2">{t.purchase_log}</h3>
-                <div className="max-h-40 overflow-y-auto border rounded-lg">
+                <div className="flex-1 overflow-y-auto border rounded-lg">
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
                       <tr>
                         <th scope="col" className="px-2 py-2">{t.purchase_date}</th>
                         <th scope="col" className="px-2 py-2 text-center">{t.qty_bought}</th>
                         <th scope="col" className="px-2 py-2 text-right">{t.price_paid_per_unit}</th>
+                        <th scope="col" className="px-2 py-2 text-right">{t.supplier}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -157,6 +157,7 @@ const PriceHistoryModal: React.FC<{ item: InventoryItem | null, isOpen: boolean,
                           <td className="px-2 py-2">{formatDate(record.date, language)}</td>
                           <td className="px-2 py-2 text-center">{record.quantity}</td>
                           <td className="px-2 py-2 text-right">रू {record.price.toFixed(2)}</td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-500 truncate max-w-[80px]">{record.supplier || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -713,10 +714,10 @@ const InventoryTab: React.FC = () => {
     const handleSaveManualItem = (manualItem: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number }) => { updateInventory([manualItem]); };
     const handleOpenHistory = (item: InventoryItem) => { setSelectedItem(item); setModal('history'); };
 
-    const handleQuickAddStockConfirm = (itemId: string, quantity: number) => {
+    const handleQuickAddStockConfirm = (itemId: string, quantity: number, price?: number, supplier?: string, sellingPrice?: number) => {
         const item = inventory.find(i => i.id === itemId);
         if(item) {
-            addStock([{ inventoryId: itemId, quantity, name: item.name }]);
+            addStock([{ inventoryId: itemId, quantity, name: item.name, price, supplier, sellingPrice }]);
         }
     };
 
@@ -753,6 +754,12 @@ const InventoryTab: React.FC = () => {
             onConfirm={handleQuickAddStockConfirm}
             item={quickAddItem}
             language={language}
+            onViewHistory={() => {
+                const item = quickAddItem;
+                setQuickAddItem(null);
+                setSelectedItem(item);
+                setModal('history');
+            }}
         />
 
       <div className="space-y-6 pb-24">

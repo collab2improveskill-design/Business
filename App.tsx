@@ -1,4 +1,8 @@
 
+
+
+
+
 import React, { useState } from 'react';
 import { getTabs } from './constants';
 import type { InventoryItem, EditableBillItem, PaymentContext } from './types';
@@ -40,10 +44,10 @@ const MainLayout: React.FC = () => {
     context: null,
   });
 
-  const handleQuickAddStock = (itemId: string, quantity: number) => {
+  const handleQuickAddStock = (itemId: string, quantity: number, price?: number, supplier?: string, sellingPrice?: number) => {
     const item = inventory.find(i => i.id === itemId);
     if(item) {
-        addStock([{ inventoryId: itemId, quantity, name: item.name }]);
+        addStock([{ inventoryId: itemId, quantity, name: item.name, price, supplier, sellingPrice }]);
     }
   };
 
