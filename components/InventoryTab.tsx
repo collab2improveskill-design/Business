@@ -1,13 +1,15 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle } from 'lucide-react';
+import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle, MessageCircle, ShoppingCart, Send, Copy, Share2, ClipboardCheck, Package } from 'lucide-react';
 import type { InventoryItem, ParsedBillItemFromImage } from '../types';
 import { translations } from '../translations';
 import { parseInventoryFromImage } from '../services/geminiService';
 import { CATEGORIES } from '../constants';
-import { generateId } from '../utils';
+import { generateId, shareContent } from '../utils';
 import { useKirana } from '../context/KiranaContext';
 import { compressAndConvertToBase64 } from '../utils/imageCompression';
+import QuickAddStockModal from './QuickAddStockModal';
 
 
 // A new type for items being reviewed after a scan
@@ -396,18 +398,165 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
 };
 
 
+// --- Draft Order Modal ---
+const DraftOrderModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    items: InventoryItem[];
+    language: 'ne' | 'en';
+}> = ({ isOpen, onClose, items, language }) => {
+    const t = translations[language];
+    const [draftText, setDraftText] = useState('');
+    const [copySuccess, setCopySuccess] = useState(false);
+
+    // Generate text when items or language changes
+    useEffect(() => {
+        if (isOpen && items.length > 0) {
+            const header = t.order_list_header;
+            // Use smart name or empty if not set
+            const shopName = ""; 
+            
+            const list = items.map(item => {
+                const need = Math.max(0, item.lowStockThreshold - item.stock);
+                // "- *Sunko Dal* - Need 12 Pkt (Stock: 8)"
+                return `- *${item.name}* - ${t.need} ${need} ${item.unit} (${t.stock}: ${item.stock})`;
+            }).join('\n');
+
+            setDraftText(`${header}\n\n${list}\n\n${shopName}`);
+        }
+    }, [isOpen, items, language, t]);
+
+    if (!isOpen) return null;
+
+    const handleShare = async () => {
+        await shareContent(draftText);
+    };
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(draftText);
+            setCopySuccess(true);
+            setTimeout(() => setCopySuccess(false), 2000);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex justify-center items-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="flex justify-between items-center mb-4 border-b pb-3">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <Send className="w-5 h-5 text-purple-600" />
+                        {t.draft_order_title}
+                    </h2>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full"><X className="w-5 h-5"/></button>
+                </div>
+                
+                <p className="text-sm text-gray-500 mb-2">{t.edit_before_share}</p>
+                
+                <textarea 
+                    value={draftText}
+                    onChange={(e) => setDraftText(e.target.value)}
+                    className="w-full flex-1 min-h-[200px] p-4 border border-gray-300 rounded-xl font-mono text-sm bg-white text-gray-800 focus:ring-2 focus:ring-purple-500 outline-none resize-none shadow-sm"
+                    spellCheck={false}
+                />
+
+                <div className="flex gap-3 mt-4">
+                    <button 
+                        onClick={handleCopy}
+                        className="flex-1 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+                    >
+                         {copySuccess ? <ClipboardCheck className="w-5 h-5 text-green-600"/> : <Copy className="w-5 h-5"/>}
+                         {copySuccess ? t.order_copied : t.copy_text}
+                    </button>
+                    <button 
+                        onClick={handleShare}
+                        className="flex-1 py-3 rounded-xl font-bold bg-purple-600 text-white hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 shadow-lg"
+                    >
+                        <Share2 className="w-5 h-5" />
+                        {t.share_order}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- New Low Stock Card Component ---
+const LowStockCard: React.FC<{ 
+    item: InventoryItem; 
+    isSelected: boolean;
+    onToggleSelect: (id: string) => void;
+    onUpdateQty: (item: InventoryItem) => void; 
+    language: 'ne' | 'en'; 
+}> = ({ item, isSelected, onToggleSelect, onUpdateQty, language }) => {
+    const t = translations[language];
+    
+    // Reverse Logic: Bar represents stock level. If low, it should look critical.
+    const percentage = Math.min(100, (item.stock / item.lowStockThreshold) * 100);
+    const isCritical = item.stock === 0;
+
+    return (
+        <div 
+            onClick={() => onToggleSelect(item.id)}
+            className={`bg-white rounded-xl p-4 shadow-sm border border-l-4 border-l-red-500 flex items-center gap-3 relative overflow-hidden transition-all active:scale-[0.99] cursor-pointer ${isSelected ? 'ring-2 ring-purple-500 bg-purple-50/50' : 'border-gray-100'}`}
+        >
+            {/* Checkbox */}
+            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors shrink-0 ${isSelected ? 'bg-purple-600 border-purple-600' : 'border-gray-300'}`}>
+                {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <h3 className="font-bold text-gray-800 text-base leading-tight">{item.name}</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">{t.current}: {item.stock} {item.unit} • {t.target}: {item.lowStockThreshold}</p>
+                    </div>
+                </div>
+
+                {/* Progress Bar (Visual Urgency) */}
+                <div className="mt-2 h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                        className={`h-full rounded-full transition-all duration-500 ${percentage < 30 ? 'bg-red-600' : (percentage < 60 ? 'bg-orange-500' : 'bg-yellow-500')}`} 
+                        style={{ width: `${percentage}%` }}
+                    />
+                </div>
+            </div>
+
+            {/* Quick Update Button (Keep only this action, updated Icon) */}
+            <button 
+                onClick={(e) => { e.stopPropagation(); onUpdateQty(item); }}
+                className="p-2 rounded-full bg-gray-100 text-purple-600 hover:bg-purple-100 transition-colors shrink-0"
+                aria-label={t.quick_add_stock}
+            >
+                <Package className="w-5 h-5" />
+            </button>
+        </div>
+    );
+};
+
+
 // --- Main InventoryTab Component ---
 const InventoryTab: React.FC = () => {
-    const { language, inventory, setInventory } = useKirana();
+    const { language, inventory, setInventory, addStock } = useKirana();
     const [searchTerm, setSearchTerm] = useState('');
-    const [modal, setModal] = useState<'scan' | 'manual' | 'history' | 'choice' | null>(null);
+    const [modal, setModal] = useState<'scan' | 'manual' | 'history' | 'choice' | 'draft_order' | null>(null);
     const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
     const [isVoiceSearching, setIsVoiceSearching] = useState(false);
     const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'stock' | 'category', direction: 'asc' | 'desc' } | null>({ key: 'name', direction: 'asc' });
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
     
+    // Quick Add Modal State local to this tab
+    const [quickAddItem, setQuickAddItem] = useState<InventoryItem | null>(null);
+
     // Toggle State for View Mode
     const [viewMode, setViewMode] = useState<'all' | 'low_stock'>('all');
+
+    // Selection State for Bulk Order
+    const [selectedLowStockIds, setSelectedLowStockIds] = useState<Set<string>>(new Set());
 
     const t = translations[language];
     
@@ -563,6 +712,27 @@ const InventoryTab: React.FC = () => {
     const handleSaveFromScan = (scannedItems: ReviewableItem[]) => { updateInventory(scannedItems); };
     const handleSaveManualItem = (manualItem: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number }) => { updateInventory([manualItem]); };
     const handleOpenHistory = (item: InventoryItem) => { setSelectedItem(item); setModal('history'); };
+
+    const handleQuickAddStockConfirm = (itemId: string, quantity: number) => {
+        const item = inventory.find(i => i.id === itemId);
+        if(item) {
+            addStock([{ inventoryId: itemId, quantity, name: item.name }]);
+        }
+    };
+
+    const toggleLowStockSelection = (id: string) => {
+        setSelectedLowStockIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            return newSet;
+        });
+    };
+
+    // Get selected items objects for the draft modal
+    const selectedLowStockItems = useMemo(() => {
+        return inventory.filter(item => selectedLowStockIds.has(item.id));
+    }, [inventory, selectedLowStockIds]);
     
   return (
     <>
@@ -570,8 +740,22 @@ const InventoryTab: React.FC = () => {
       <ScanBillModal isOpen={modal === 'scan'} onClose={() => setModal(null)} onSave={handleSaveFromScan} language={language} inventory={inventory} />
       <ManualAddItemModal isOpen={modal === 'manual'} onClose={() => setModal(null)} onSave={handleSaveManualItem} language={language} />
       <PriceHistoryModal isOpen={modal === 'history'} onClose={() => { setModal(null); setSelectedItem(null); }} item={selectedItem} language={language} />
+      <DraftOrderModal 
+        isOpen={modal === 'draft_order'} 
+        onClose={() => setModal(null)} 
+        items={selectedLowStockItems} 
+        language={language}
+      />
       
-      <div className="space-y-6 pb-20">
+      <QuickAddStockModal
+            isOpen={!!quickAddItem}
+            onClose={() => setQuickAddItem(null)}
+            onConfirm={handleQuickAddStockConfirm}
+            item={quickAddItem}
+            language={language}
+        />
+
+      <div className="space-y-6 pb-24">
         <h1 className="text-2xl font-bold text-gray-800">{t.inventory_management}</h1>
         
         {/* New Toggle Control */}
@@ -618,56 +802,88 @@ const InventoryTab: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="p-4 grid grid-cols-5 gap-2 bg-gray-50 border-b text-xs font-bold text-gray-500">
-            <button onClick={() => requestSort('name')} className="col-span-3 text-left flex items-center">{t.item_name} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'name' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
-            <button onClick={() => requestSort('stock')} className="col-span-1 text-right flex items-center justify-end">{t.stock} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'stock' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
-            <button onClick={() => requestSort('category')} className="col-span-1 text-right flex items-center justify-end">{t.category} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'category' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
-          </div>
-          <div className="divide-y">
-              {sortedAndFilteredInventory.length > 0 ? sortedAndFilteredInventory.map((item) => (
-              <div key={item.id} onClick={() => handleOpenHistory(item)} className="p-4 grid grid-cols-5 gap-2 hover:bg-gray-50 cursor-pointer">
-                  <div className="col-span-3">
-                    <p className="font-medium text-gray-800 flex items-center gap-2">
-                        {item.stock <= item.lowStockThreshold && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
-                        {item.name}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                      <Tag className="w-3 h-3 text-purple-600"/> {t.selling_price}: रू{item.price.toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="col-span-1 text-right">
-                    <p className={`font-bold text-sm ${item.stock <= item.lowStockThreshold ? 'text-red-600' : 'text-gray-800'}`}>
-                        {item.stock} <span className="font-normal text-xs">{item.unit}</span>
-                    </p>
-                  </div>
-                   <div className="col-span-1 text-right">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{item.category}</span>
-                  </div>
-              </div>
-              )) : (
-                <div className="p-8 text-center text-gray-500 flex flex-col items-center">
-                    {viewMode === 'low_stock' ? (
-                        <>
-                            <CheckCircle className="w-10 h-10 text-green-500 mb-2" />
-                            <p>{t.no_low_stock_items}</p>
-                        </>
-                    ) : (
-                        <p>{t.no_items_found}</p>
+        {viewMode === 'low_stock' ? (
+            // CARD View for Low Stock with Selection
+            <div className="grid grid-cols-1 gap-3 animate-in slide-in-from-bottom-2 fade-in duration-300">
+                 {sortedAndFilteredInventory.length > 0 ? sortedAndFilteredInventory.map(item => (
+                     <LowStockCard 
+                        key={item.id} 
+                        item={item} 
+                        isSelected={selectedLowStockIds.has(item.id)}
+                        onToggleSelect={toggleLowStockSelection}
+                        onUpdateQty={(i) => setQuickAddItem(i)} 
+                        language={language} 
+                    />
+                 )) : (
+                    <div className="p-12 text-center text-gray-500 flex flex-col items-center bg-white rounded-xl shadow-sm border border-dashed">
+                        <CheckCircle className="w-12 h-12 text-green-500 mb-3" />
+                        <p className="text-lg font-medium text-gray-800">All Good!</p>
+                        <p className="text-sm">{t.no_low_stock_items}</p>
+                    </div>
+                 )}
+            </div>
+        ) : (
+            // LIST View for All Inventory
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden animate-in slide-in-from-bottom-2 fade-in duration-300">
+                <div className="p-4 grid grid-cols-5 gap-2 bg-gray-50 border-b text-xs font-bold text-gray-500">
+                    <button onClick={() => requestSort('name')} className="col-span-3 text-left flex items-center">{t.item_name} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'name' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
+                    <button onClick={() => requestSort('stock')} className="col-span-1 text-right flex items-center justify-end">{t.stock} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'stock' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
+                    <button onClick={() => requestSort('category')} className="col-span-1 text-right flex items-center justify-end">{t.category} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'category' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
+                </div>
+                <div className="divide-y">
+                    {sortedAndFilteredInventory.length > 0 ? sortedAndFilteredInventory.map((item) => (
+                    <div key={item.id} onClick={() => handleOpenHistory(item)} className="p-4 grid grid-cols-5 gap-2 hover:bg-gray-50 cursor-pointer">
+                        <div className="col-span-3">
+                            <p className="font-medium text-gray-800 flex items-center gap-2">
+                                {item.stock <= item.lowStockThreshold && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
+                                {item.name}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                            <Tag className="w-3 h-3 text-purple-600"/> {t.selling_price}: रू{item.price.toFixed(2)}
+                            </p>
+                        </div>
+                        <div className="col-span-1 text-right">
+                            <p className={`font-bold text-sm ${item.stock <= item.lowStockThreshold ? 'text-red-600' : 'text-gray-800'}`}>
+                                {item.stock} <span className="font-normal text-xs">{item.unit}</span>
+                            </p>
+                        </div>
+                        <div className="col-span-1 text-right">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{item.category}</span>
+                        </div>
+                    </div>
+                    )) : (
+                        <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+                            <p>{t.no_items_found}</p>
+                        </div>
                     )}
                 </div>
-              )}
-          </div>
-        </div>
+            </div>
+        )}
       </div>
       
-      <button 
-        onClick={() => setModal('choice')} 
-        className={`fixed bottom-24 right-6 bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${viewMode === 'all' ? 'scale-100 opacity-100 translate-y-0' : 'scale-0 opacity-0 translate-y-10 pointer-events-none'}`}
-        aria-label={t.add_item_button}
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {/* Conditionally render FABs based on view mode */}
+      
+      {/* FAB for All Inventory: Add New Item */}
+      {viewMode === 'all' && (
+        <button 
+            onClick={() => setModal('choice')} 
+            className={`fixed bottom-24 right-6 bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-110 z-30`}
+            aria-label="Add Item"
+        >
+            <Plus className="w-6 h-6" />
+        </button>
+      )}
+
+      {/* FAB for Low Stock: Draft Order (Only when items selected) */}
+      {viewMode === 'low_stock' && selectedLowStockIds.size > 0 && (
+         <button 
+            onClick={() => setModal('draft_order')} 
+            className={`fixed bottom-24 right-6 bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-full px-6 py-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 z-30 flex items-center gap-2 font-bold animate-in zoom-in`}
+        >
+            <Send className="w-5 h-5" />
+            <span>{t.draft_order} ({selectedLowStockIds.size})</span>
+        </button>
+      )}
     </>
   );
 };

@@ -47,6 +47,8 @@ export const formatDateTime = (isoDate: string, lang: 'ne' | 'en'): string => {
         minute: '2-digit',
         hour12: true,
     };
+    // Note: To fully support Bikram Sambat (BS), a specialized library is typically required.
+    // Standard JS Intl uses Gregorian with locale strings. 
     return date.toLocaleString(lang === 'ne' ? 'ne-NP' : 'en-US', options);
 };
 
@@ -77,4 +79,32 @@ export const formatRelativeTime = (isoDate: string, t: any): string => {
         return t.minutes_ago.replace('{minutes}', Math.floor(interval));
     }
     return t.moments_ago;
+};
+
+/**
+ * Share text content using the native Web Share API if available, 
+ * or falls back to clipboard copy.
+ */
+export const shareContent = async (text: string): Promise<boolean> => {
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: 'Order List',
+                text: text,
+            });
+            return true;
+        } catch (error) {
+            console.error('Error sharing:', error);
+            // User cancelled share is a common error, we treat it as handled.
+            return false; 
+        }
+    } else {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true; // Indicates copied to clipboard
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+            return false;
+        }
+    }
 };

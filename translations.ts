@@ -112,6 +112,18 @@ export const translations = {
     // New Translations for Inventory Toggle
     all_inventory_tab: "सबै सामान (All)",
     low_stock_tab: "कम स्टक (Low Stock)",
+    
+    // Bulk Order
+    draft_order: "अर्डर ड्राफ्ट",
+    draft_order_title: "अर्डर प्रिभ्यु",
+    share_order: "अर्डर पठाउनुहोस्",
+    copy_text: "टेक्स्ट कपी गर्नुहोस्",
+    order_copied: "अर्डर कपी भयो!",
+    order_list_header: "नमस्ते! अर्डर लिस्ट:",
+    need: "चाहियो",
+    target: "लक्ष्य",
+    current: "हाल",
+    edit_before_share: "पठाउनु अघि विवरण जाँच गर्नुहोस्",
 
     // Karobar Tab & Khata
     khata_view: "खाता",
@@ -301,6 +313,18 @@ export const translations = {
     // New Translations for Inventory Toggle
     all_inventory_tab: "All Inventory",
     low_stock_tab: "Low Stock",
+    
+    // Bulk Order
+    draft_order: "Draft Order",
+    draft_order_title: "Order Preview",
+    share_order: "Share Order",
+    copy_text: "Copy Text",
+    order_copied: "Order copied!",
+    order_list_header: "Namaste! Order List:",
+    need: "Need",
+    target: "Target",
+    current: "Current",
+    edit_before_share: "Review details before sharing",
 
     // Karobar Tab & Khata
     khata_view: "Khata",
