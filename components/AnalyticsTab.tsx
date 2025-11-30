@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp, ArrowUpRight, CheckCheck, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp, ArrowUpRight, CheckCheck, Trash2, QrCode, BookOpen, Trophy } from 'lucide-react';
 import { translations } from '../translations';
 import type { UnifiedTransaction } from '../types';
 import ConfirmationModal from './ConfirmationModal';
@@ -27,8 +27,8 @@ const MAX_CUSTOM_RANGE_DAYS = 30;
 const LOCAL_TEXT = {
    ne: {
        insight_title: "दैनिक सारांश",
-       actual_money_in: "हातमा आएको पैसा",
-       credit_given: "दिएको उधारो",
+       actual_money_in: "हातमा आएको पैसा (CASH + QR)",
+       credit_sales: "उधारो बिक्री",
        total_sales: "कुल बिक्री",
        money_in_hand: "नगद + अनलाइन",
        top_seller: "धेरै बिकेको",
@@ -36,7 +36,7 @@ const LOCAL_TEXT = {
        shift_ended: "सिफ्ट समाप्त",
        zoom_hint: "जुम गर्न स्लाइडर तान्नुहोस्",
        payment_distribution: "भुक्तानी तरिका",
-       recent_txn: "हालैको कारोबार",
+       recent_txn: "हालको कारोबार",
        cash: "नगद",
        qr: "QR",
        credit: "उधारो",
@@ -63,15 +63,19 @@ const LOCAL_TEXT = {
        hide_table: "तालिका लुकाउनुहोस्",
        time: "समय",
        date: "मिति",
-       total: "जम्मा"
+       total: "जम्मा",
+       top_products_title: "धेरै बिक्री हुने सामानहरू",
+       rank: "क्रम",
+       product_name: "सामानको नाम",
+       quantity_sold: "बिक्री मात्रा"
    },
    en: {
        insight_title: "Daily Insight",
-       actual_money_in: "Actual Money In",
-       credit_given: "Credit Given",
+       actual_money_in: "ACTUAL MONEY IN (CASH + QR)",
+       credit_sales: "CREDIT SALES",
        total_sales: "Total Sales",
        money_in_hand: "Cash + Online",
-       top_seller: "Top Seller",
+       top_seller: "Top Selling Product",
        end_shift: "End Shift",
        shift_ended: "Shift Ended",
        zoom_hint: "Drag slider to zoom",
@@ -103,7 +107,11 @@ const LOCAL_TEXT = {
        hide_table: "Hide Data Table",
        time: "Time",
        date: "Date",
-       total: "Total"
+       total: "Total",
+       top_products_title: "Top Selling Products",
+       rank: "Rank",
+       product_name: "Product Name",
+       quantity_sold: "Qty Sold"
    }
 };
 
@@ -130,6 +138,11 @@ type DonutSlice = {
     percentage: number;
 };
 
+type TopProduct = {
+    name: string;
+    qty: number;
+};
+
 // --- Helper Components ---
 
 const SkeletonLoader = () => (
@@ -140,6 +153,55 @@ const SkeletonLoader = () => (
         <div className="h-40 bg-gray-200 rounded-2xl w-full"></div>
     </div>
 );
+
+const TopProductsModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    products: TopProduct[];
+    localT: typeof LOCAL_TEXT.en;
+}> = ({ isOpen, onClose, products, localT }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex justify-center items-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl flex flex-col max-h-[80vh]">
+                <div className="flex justify-between items-center mb-4 pb-2 border-b">
+                    <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <Trophy className="w-5 h-5 text-yellow-500" />
+                        {localT.top_products_title}
+                    </h3>
+                    <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
+                </div>
+                
+                <div className="overflow-y-auto flex-1">
+                    <table className="w-full text-sm">
+                        <thead className="bg-gray-50 text-gray-500">
+                            <tr>
+                                <th className="px-3 py-2 text-left w-12">#</th>
+                                <th className="px-3 py-2 text-left">{localT.product_name}</th>
+                                <th className="px-3 py-2 text-right">{localT.quantity_sold}</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {products.map((p, idx) => (
+                                <tr key={idx} className={idx < 3 ? 'bg-yellow-50/30' : ''}>
+                                    <td className="px-3 py-3 font-bold text-gray-400">
+                                        {idx + 1}
+                                        {idx === 0 && <span className="ml-1">🥇</span>}
+                                        {idx === 1 && <span className="ml-1">🥈</span>}
+                                        {idx === 2 && <span className="ml-1">🥉</span>}
+                                    </td>
+                                    <td className="px-3 py-3 font-medium text-gray-800">{p.name}</td>
+                                    <td className="px-3 py-3 text-right font-bold text-purple-600">{p.qty}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const CustomRangeModal: React.FC<{
     isOpen: boolean;
@@ -652,6 +714,7 @@ const AnalyticsTab: React.FC = () => {
     const [isShiftEnded, setIsShiftEnded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState(false);
+    const [showTopProducts, setShowTopProducts] = useState(false);
     
     const dateFilterRef = useRef<HTMLDivElement>(null);
 
@@ -799,24 +862,22 @@ const AnalyticsTab: React.FC = () => {
         };
     }, [filteredTransactions]);
 
-    const comparisonData = useMemo(() => {
-        if (!isSingleDay) return null;
-        const currentStart = new Date(dateRange.start); currentStart.setHours(0,0,0,0);
-        const currentEnd = new Date(dateRange.start); currentEnd.setHours(23,59,59,999);
-        const prevStart = new Date(currentStart); prevStart.setDate(prevStart.getDate() - 1);
-        const prevEnd = new Date(currentEnd); prevEnd.setDate(prevEnd.getDate() - 1);
-
-        const currentTotal = unifiedTransactions
-            .filter(t => { const d = new Date(t.date); return d >= currentStart && d <= currentEnd; })
-            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-            
-        const prevTotal = unifiedTransactions
-            .filter(t => { const d = new Date(t.date); return d >= prevStart && d <= prevEnd; })
-            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-
-        const percentChange = prevTotal === 0 ? (currentTotal > 0 ? 100 : 0) : ((currentTotal - prevTotal) / prevTotal) * 100;
-        return { currentTotal, prevTotal, percentChange };
-    }, [isSingleDay, dateRange, unifiedTransactions]);
+    // --- Top Products Calculation ---
+    const topProducts = useMemo(() => {
+        const productMap = new Map<string, number>();
+        filteredTransactions.forEach(txn => {
+            txn.items.forEach(item => {
+                const qty = parseFloat(String(item.quantity)) || 0;
+                const name = item.name;
+                if (name) {
+                    productMap.set(name, (productMap.get(name) || 0) + qty);
+                }
+            });
+        });
+        return Array.from(productMap.entries())
+            .map(([name, qty]) => ({ name, qty }))
+            .sort((a, b) => b.qty - a.qty);
+    }, [filteredTransactions]);
 
     const chartData = useMemo((): MultiLinePoint[] => {
         if (isSingleDay) {
@@ -958,6 +1019,7 @@ const AnalyticsTab: React.FC = () => {
             
             <ConfirmationModal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} onConfirm={handleDelete} title={t.confirm_delete_txn_title} message={t.confirm_delete_txn_desc} language={language} />
             <CustomRangeModal isOpen={isCustomRangeOpen} onClose={() => setIsCustomRangeOpen(false)} onApply={handleCustomRangeApply} language={language} localT={LOCAL_TEXT.en} />
+            <TopProductsModal isOpen={showTopProducts} onClose={() => setShowTopProducts(false)} products={topProducts} localT={localT} />
 
             {/* 1. Header & Navigation */}
             <div className="flex items-center justify-between">
@@ -1002,59 +1064,60 @@ const AnalyticsTab: React.FC = () => {
 
             {isLoading ? <SkeletonLoader /> : (
                 <div className="space-y-6 animate-in fade-in duration-500">
-                    {/* 2. Insight Card */}
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200 overflow-hidden relative">
-                        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-                            <TrendingUp className="w-24 h-24 text-purple-600" />
+                    {/* 2. Redesigned Daily Insight Card */}
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200">
+                        {/* Header */}
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <TrendingUp className="w-5 h-5 text-green-600" /> {localT.insight_title}
+                            </h3>
+                            {isToday && (
+                                <button onClick={() => setIsShiftEnded(!isShiftEnded)} className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 transition-all ${isShiftEnded ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                                    <Clock className="w-3 h-3"/> {isShiftEnded ? localT.shift_ended : localT.end_shift}
+                                </button>
+                            )}
                         </div>
-                        
-                        {/* MODE A: Day Mode */}
-                        {isSingleDay && comparisonData && (
-                            <>
-                                <div className="flex justify-between items-start mb-4 relative z-10">
-                                    <div>
-                                        <p className="text-sm text-gray-500 font-medium">{localT.insight_title}</p>
-                                        <h2 className="text-3xl font-extrabold text-gray-900 mt-1">Rs.{comparisonData.currentTotal.toFixed(0)}</h2>
-                                        <div className={`flex items-center gap-1 text-xs font-bold mt-1 ${comparisonData.percentChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                            {comparisonData.percentChange >= 0 ? <ArrowUp className="w-3 h-3"/> : <ArrowDown className="w-3 h-3"/>}
-                                            {Math.abs(comparisonData.percentChange).toFixed(1)}% <span className="text-gray-400 font-normal ml-1">{localT.sales_vs_prev}</span>
-                                        </div>
-                                    </div>
-                                    {isToday && (
-                                        <button onClick={() => setIsShiftEnded(!isShiftEnded)} className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 transition-all ${isShiftEnded ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700'}`}>
-                                            <Clock className="w-3 h-3"/> {isShiftEnded ? localT.shift_ended : localT.end_shift}
-                                        </button>
-                                    )}
-                                </div>
-                                <div className="flex gap-3 relative z-10">
-                                    <div className="flex-1 bg-green-50 rounded-xl p-2 border border-green-100">
-                                        <div className="flex items-center gap-1 text-green-700 mb-1">
-                                            <Wallet className="w-3 h-3"/>
-                                            <span className="text-[10px] font-bold uppercase">{localT.money_in_hand}</span>
-                                        </div>
-                                        <p className="text-lg font-bold text-green-800">Rs.{(financialSummary.moneyInHand).toFixed(0)}</p>
-                                    </div>
-                                </div>
-                            </>
-                        )}
 
-                        {/* MODE B: Range Mode */}
-                        {!isSingleDay && (
-                            <div className="relative z-10">
-                                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                    <Award className="w-5 h-5 text-purple-600" /> Financial Health
-                                </h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
-                                        <p className="text-[10px] text-emerald-700 font-bold uppercase tracking-wide mb-1">{localT.actual_money_in}</p>
-                                        <p className="text-2xl font-extrabold text-emerald-600">Rs.{financialSummary.moneyInHand.toFixed(0)}</p>
-                                        <p className="text-[10px] text-emerald-600 mt-1 opacity-80">({localT.money_in_hand})</p>
+                        {/* Money Cards */}
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+                                <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide mb-1 break-words">
+                                    {localT.actual_money_in}
+                                </p>
+                                <p className="text-2xl font-extrabold text-emerald-600">
+                                    Rs.{financialSummary.moneyInHand.toFixed(0)}
+                                </p>
+                            </div>
+                            <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                                <p className="text-[10px] font-bold text-rose-800 uppercase tracking-wide mb-2">
+                                    {localT.credit_sales}
+                                </p>
+                                <p className="text-2xl font-extrabold text-red-600">
+                                    Rs.{financialSummary.credit.toFixed(0)}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Top Selling Product Teaser */}
+                        {topProducts.length > 0 && (
+                            <div 
+                                onClick={() => setShowTopProducts(true)}
+                                className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors border border-gray-100"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600 shrink-0">
+                                        <Trophy className="w-5 h-5" />
                                     </div>
-                                    <div className="bg-rose-50 border border-rose-100 rounded-xl p-3">
-                                        <p className="text-[10px] text-rose-700 font-bold uppercase tracking-wide mb-1">{localT.credit_given}</p>
-                                        <p className="text-2xl font-extrabold text-rose-600">Rs.{financialSummary.credit.toFixed(0)}</p>
-                                        <p className="text-[10px] text-rose-600 mt-1 opacity-80">({localT.credit})</p>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wide mb-0.5">{localT.top_seller}</p>
+                                        <p className="font-bold text-gray-800 text-sm truncate">{topProducts[0].name}</p>
                                     </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                     <span className="text-xs font-bold text-gray-600 bg-white px-2 py-1 rounded border border-gray-200">
+                                        {topProducts[0].qty} units
+                                     </span>
+                                     <ChevronRight className="w-4 h-4 text-gray-400" />
                                 </div>
                             </div>
                         )}
@@ -1128,59 +1191,120 @@ const AnalyticsTab: React.FC = () => {
 
                     {/* 5. Recent Transactions (Day Mode Only) */}
                     {isSingleDay && (
-                        <div className="space-y-2">
-                            <h3 className="font-bold text-gray-500 text-xs ml-1 uppercase tracking-wide flex items-center gap-2">
-                                <Clock className="w-3 h-3"/> {localT.recent_txn}
-                            </h3>
-                            {filteredTransactions.length > 0 ? filteredTransactions.slice().reverse().map(txn => {
-                                const isCredit = txn.type === 'credit';
-                                const isQr = txn.type === 'qr';
-                                
-                                const Icon = isCredit ? ArrowUpRight : CheckCheck;
-                                const iconBg = isCredit ? 'bg-red-100 text-red-600' : (isQr ? 'bg-sky-100 text-sky-600' : 'bg-green-100 text-green-600');
-                                const amountClass = isCredit ? 'text-red-600' : (isQr ? 'text-sky-600' : 'text-green-600');
-                                const statusLabel = isCredit ? t.due : t.paid;
-                                const statusLabelColor = isCredit ? 'text-red-400' : 'text-green-500';
-                                
-                                // Detailed Math Logic for "Recent Sales"
-                                // Cash/QR: Bill = Paid = Amount, Rem = 0
-                                // Credit: Bill = Amount, Paid = 0, Rem = Amount
-                                const billAmt = txn.amount;
-                                const paidAmt = isCredit ? 0 : txn.amount;
-                                const remAmt = isCredit ? txn.amount : 0;
-                                const remColor = remAmt > 0 ? 'text-red-500' : 'text-green-600';
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between px-1">
+                                <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                    <Clock className="w-5 h-5 text-purple-600"/> {localT.recent_txn}
+                                </h3>
+                                <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">
+                                    {filteredTransactions.length} Entries
+                                </span>
+                            </div>
 
-                                return (
-                                    <div key={txn.id} className="group p-3 rounded-lg flex justify-between items-center bg-white border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${iconBg}`}>
-                                                <Icon className="w-5 h-5" />
+                            <div className="space-y-3">
+                                {filteredTransactions.length > 0 ? filteredTransactions.slice().reverse().map(txn => {
+                                    const isCredit = txn.type === 'credit';
+                                    const isQr = txn.type === 'qr';
+                                    
+                                    // Visual Config based on type
+                                    let theme = {
+                                        bg: 'bg-emerald-50',
+                                        iconBg: 'bg-emerald-100',
+                                        iconColor: 'text-emerald-600',
+                                        amountColor: 'text-emerald-700',
+                                        badgeBg: 'bg-emerald-100',
+                                        badgeText: 'text-emerald-700',
+                                        label: localT.cash,
+                                        icon: Wallet
+                                    };
+
+                                    if (isQr) {
+                                        theme = {
+                                            bg: 'bg-sky-50',
+                                            iconBg: 'bg-sky-100',
+                                            iconColor: 'text-sky-600',
+                                            amountColor: 'text-sky-700',
+                                            badgeBg: 'bg-sky-100',
+                                            badgeText: 'text-sky-700',
+                                            label: localT.qr,
+                                            icon: QrCode
+                                        };
+                                    } else if (isCredit) {
+                                        theme = {
+                                            bg: 'bg-rose-50',
+                                            iconBg: 'bg-rose-100',
+                                            iconColor: 'text-rose-600',
+                                            amountColor: 'text-rose-700',
+                                            badgeBg: 'bg-rose-100',
+                                            badgeText: 'text-rose-700',
+                                            label: localT.credit,
+                                            icon: BookOpen
+                                        };
+                                    }
+
+                                    const Icon = theme.icon;
+
+                                    return (
+                                        <div 
+                                            key={txn.id} 
+                                            className="group relative bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-lg hover:border-purple-100 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4"
+                                        >
+                                            {/* Icon Box */}
+                                            <div className={`w-14 h-14 rounded-2xl ${theme.iconBg} flex items-center justify-center shrink-0 shadow-inner`}>
+                                                <Icon className={`w-6 h-6 ${theme.iconColor}`} />
                                             </div>
-                                            <div>
-                                                <p className="font-bold text-gray-800 text-sm">{txn.customerName}</p>
-                                                <p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p>
-                                                <p className="text-[11px] text-gray-500 font-mono mt-1 bg-gray-50 px-1 rounded inline-block">
-                                                    Bill: {billAmt.toFixed(0)} - Paid: {paidAmt.toFixed(0)} = Rem: <span className={`${remColor} font-bold`}>{remAmt.toFixed(0)}</span>
-                                                </p>
+
+                                            {/* Content */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <h4 className="font-bold text-gray-800 text-base truncate pr-2">{txn.customerName}</h4>
+                                                    <span className={`font-extrabold text-lg ${theme.amountColor}`}>
+                                                        Rs. {txn.amount.toFixed(0)}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="flex justify-between items-center">
+                                                    <div className="flex items-center gap-2 text-xs text-gray-500 font-medium">
+                                                        <span>{formatDateTime(txn.date, language).split(',')[1]?.trim() || formatDateTime(txn.date, language)}</span>
+                                                        <span className="w-1 h-1 bg-gray-300 rounded-full" />
+                                                        <span className={`${theme.iconColor} uppercase tracking-wider text-[10px] font-bold`}>{theme.label}</span>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3">
+                                                        {isCredit && (
+                                                            <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-md font-bold border border-red-100">
+                                                                DUE
+                                                            </span>
+                                                        )}
+                                                        {!isCredit && (
+                                                            <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-md font-bold border border-green-100 flex items-center gap-1">
+                                                                <CheckCheck className="w-3 h-3" /> PAID
+                                                            </span>
+                                                        )}
+                                                        
+                                                        {/* Delete Action - Visible on Hover/Mobile Touch */}
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); setConfirmDelete(txn); }}
+                                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                                            aria-label="Delete transaction"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-right">
-                                                <p className={`font-bold text-sm ${amountClass}`}>Rs. {txn.amount.toFixed(2)}</p>
-                                                <p className={`text-[10px] font-bold uppercase ${statusLabelColor}`}>{statusLabel}</p>
-                                            </div>
-                                             <button onClick={() => setConfirmDelete(txn)} className="text-gray-300 hover:text-red-600 p-2 transition-colors">
-                                                  <Trash2 className="w-4 h-4" />
-                                             </button>
+                                    );
+                                }) : (
+                                    <div className="flex flex-col items-center justify-center py-12 px-4 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200 text-center">
+                                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm mb-4">
+                                            <Clock className="w-8 h-8 text-gray-300" />
                                         </div>
+                                        <p className="text-gray-500 font-medium">{localT.no_data_day}</p>
+                                        <p className="text-xs text-gray-400 mt-1">Transactions will appear here once you start selling.</p>
                                     </div>
-                                )
-                            }) : (
-                                <div className="text-center p-8 text-gray-400 bg-gray-50 rounded-xl border border-dashed text-sm flex flex-col items-center">
-                                    <Info className="w-6 h-6 mb-2 opacity-50"/>
-                                    {localT.no_data_day}
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
