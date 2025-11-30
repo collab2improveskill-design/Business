@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle, MessageCircle, ShoppingCart, Send, Copy, Share2, ClipboardCheck, Package, MoreVertical } from 'lucide-react';
+import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle, MessageCircle, ShoppingCart, Send, Copy, Share2, ClipboardCheck, Package, MoreVertical, Pencil } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import type { InventoryItem, ParsedBillItemFromImage } from '../types';
 import { translations } from '../translations';
@@ -10,6 +10,7 @@ import { generateId, shareContent } from '../utils';
 import { useKirana } from '../context/KiranaContext';
 import { compressAndConvertToBase64 } from '../utils/imageCompression';
 import QuickAddStockModal from './QuickAddStockModal';
+import ConfirmationModal from './ConfirmationModal';
 
 
 // A new type for items being reviewed after a scan
@@ -175,48 +176,90 @@ const PriceHistoryChart: React.FC<{ data: { price: number; date: string; quantit
 };
 
 
-// --- InventoryCard (Redesigned for Intuitive Use) ---
+// --- InventoryCard (Redesigned & Z-Index Fixed) ---
 const InventoryCard: React.FC<{ 
     item: InventoryItem; 
     onClick: () => void; 
-    onQuickAdd: (e: React.MouseEvent) => void;
+    onQuickAdd: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
     language: 'ne' | 'en'; 
-}> = ({ item, onClick, onQuickAdd, language }) => {
+}> = ({ item, onClick, onQuickAdd, onEdit, onDelete, language }) => {
     const t = translations[language];
     const isLowStock = item.stock <= item.lowStockThreshold;
+    const [showMenu, setShowMenu] = useState(false);
 
     return (
         <div 
             onClick={onClick}
-            className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer hover:shadow-md hover:border-purple-100"
+            // Z-Index fix: Boost z-index when menu is open so it floats above subsequent cards.
+            // Removed transform (scale) to prevent 'fixed' backdrop from being trapped.
+            className={`relative bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3 transition-shadow cursor-pointer hover:shadow-md hover:border-purple-100 ${showMenu ? 'z-30 ring-1 ring-purple-100' : ''}`}
         >
             {/* Left Side: Avatar */}
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shrink-0 ${isLowStock ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl font-bold shrink-0 shadow-sm ${isLowStock ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
                 {item.name.charAt(0).toUpperCase()}
             </div>
 
             {/* Middle Section: Info */}
-            <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-gray-900 truncate text-base">{item.name}</h3>
-                <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-md truncate max-w-[80px]">{item.category}</span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 ${isLowStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {isLowStock && <AlertTriangle className="w-3 h-3"/>}
-                        {t.stock}: {item.stock} {item.unit}
-                    </span>
+            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                <h3 className="font-bold text-gray-900 truncate text-base leading-tight">{item.name}</h3>
+                <span className="text-xs text-gray-400 font-medium mt-0.5 truncate max-w-[120px]">
+                    {item.category}
+                </span>
+            </div>
+
+            {/* Right Section: Price & Stock Badge */}
+            <div className="flex flex-col items-end mr-1">
+                <p className="font-bold text-gray-900 text-lg leading-tight">रू {item.price}</p>
+                <div className={`mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${isLowStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {isLowStock && <AlertTriangle className="w-3 h-3"/>}
+                    {t.stock}: {item.stock} {item.unit}
                 </div>
             </div>
 
-            {/* Right Section: Price & Action */}
-            <div className="flex flex-col items-end gap-2 pl-2">
-                <p className="font-bold text-gray-900 text-sm">रू {item.price}</p>
+            {/* Far Right: Three Dot Menu */}
+            <div className="relative ml-1">
                 <button 
-                    onClick={onQuickAdd}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-600 text-white shadow-sm hover:bg-purple-700 active:bg-purple-800 transition-colors"
-                    aria-label={t.quick_add_stock}
+                    onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                    className="p-2 -mr-2 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
                 >
-                    <Plus className="w-4 h-4" />
+                    <MoreVertical className="w-5 h-5" />
                 </button>
+
+                {/* Dropdown Menu */}
+                {showMenu && (
+                    <>
+                        {/* Backdrop to close menu */}
+                        <div 
+                            className="fixed inset-0 z-40 cursor-default" 
+                            onClick={(e) => { e.stopPropagation(); setShowMenu(false); }}
+                        />
+                        <div className="absolute right-0 top-8 w-48 bg-white rounded-xl shadow-xl border border-gray-100 z-50 py-1 overflow-hidden animate-in fade-in zoom-in duration-200 origin-top-right">
+                             <button 
+                                onClick={(e) => { e.stopPropagation(); onQuickAdd(); setShowMenu(false); }}
+                                className="w-full text-left px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-2 transition-colors"
+                            >
+                                <PlusCircle className="w-4 h-4" />
+                                {t.quick_add_stock}
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onEdit(); setShowMenu(false); }}
+                                className="w-full text-left px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors border-t border-gray-50"
+                            >
+                                <Pencil className="w-4 h-4" />
+                                Edit Details
+                            </button>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onDelete(); setShowMenu(false); }}
+                                className="w-full text-left px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors border-t border-gray-50"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Delete Item
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );
@@ -281,33 +324,77 @@ const PriceHistoryModal: React.FC<{ item: InventoryItem | null, isOpen: boolean,
 
 
 // --- ManualAddItemModal ---
-const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (item: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number }) => void, language: 'ne' | 'en' }> = ({ isOpen, onClose, onSave, language }) => {
-    const [item, setItem] = useState({ name: '', quantity: '', unit: '', price: '', lowStockThreshold: '10' });
+const ManualAddItemModal: React.FC<{ 
+    isOpen: boolean, 
+    onClose: () => void, 
+    onSave: (item: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number, id?: string, sellingPrice: number }) => void, 
+    language: 'ne' | 'en',
+    initialItem?: InventoryItem | null
+}> = ({ isOpen, onClose, onSave, language, initialItem }) => {
+    // Separate sellingPrice (MRP) from costPrice (Purchase)
+    const [item, setItem] = useState({ 
+        name: '', 
+        quantity: '', 
+        unit: '', 
+        sellingPrice: '', 
+        costPrice: '',
+        lowStockThreshold: '10',
+        category: 'Grocery' 
+    });
+    
     const t = translations[language];
+    
+    useEffect(() => {
+        if (isOpen) {
+            if (initialItem) {
+                setItem({
+                    name: initialItem.name,
+                    quantity: initialItem.stock.toString(), // For editing, show current stock
+                    unit: initialItem.unit,
+                    sellingPrice: initialItem.price.toString(), // Map item.price to Selling Price
+                    costPrice: '', // We don't preload cost price history here usually
+                    lowStockThreshold: initialItem.lowStockThreshold.toString(),
+                    category: initialItem.category
+                });
+            } else {
+                setItem({ 
+                    name: '', 
+                    quantity: '', 
+                    unit: '', 
+                    sellingPrice: '', 
+                    costPrice: '',
+                    lowStockThreshold: '10',
+                    category: 'Grocery'
+                });
+            }
+        }
+    }, [isOpen, initialItem]);
     
     if (!isOpen) return null;
 
     const handleSave = () => {
         const newItem = {
+            id: initialItem?.id, // Pass ID if editing
             name: item.name,
             quantity: parseFloat(item.quantity) || 0,
             unit: item.unit,
-            price: parseFloat(item.price) || 0, // This is purchase price
-            suggestedCategory: 'Other',
+            price: parseFloat(item.costPrice) || 0, // This is purchase price (cost)
+            sellingPrice: parseFloat(item.sellingPrice) || 0, // Explicit Selling Price
+            suggestedCategory: item.category || 'Other',
             lowStockThreshold: parseFloat(item.lowStockThreshold) || 5,
         };
-        if (newItem.name && newItem.quantity > 0) {
+
+        if (newItem.name) {
             onSave(newItem);
-            setItem({ name: '', quantity: '', unit: '', price: '', lowStockThreshold: '10' });
             onClose();
         }
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
+        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end animate-in slide-in-from-bottom-5">
             <div className="bg-white w-full max-w-md rounded-t-3xl p-6 flex flex-col">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-gray-800">{t.manual_entry_title}</h2>
+                    <h2 className="text-xl font-bold text-gray-800">{initialItem ? 'Edit Item' : t.manual_entry_title}</h2>
                     <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X className="w-5 h-5"/></button>
                 </div>
                 <div className="space-y-5">
@@ -317,7 +404,9 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
                     </div>
                      <div className="grid grid-cols-2 gap-4">
                         <div>
-                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.stock}</label>
+                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">
+                               {initialItem ? t.current + ' ' + t.stock : t.stock}
+                           </label>
                            <input type="number" value={item.quantity} onChange={e => setItem({...item, quantity: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="0" />
                         </div>
                         <div>
@@ -325,10 +414,24 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
                            <input type="text" value={item.unit} onChange={e => setItem({...item, unit: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="pcs, kg..." />
                         </div>
                     </div>
+                    
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.purchase_price}</label>
-                           <input type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="0.00" />
+                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.selling_price}</label>
+                           <input type="number" value={item.sellingPrice} onChange={e => setItem({...item, sellingPrice: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="0.00" />
+                        </div>
+                        <div>
+                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.purchase_price} <span className="text-[10px] font-normal text-gray-400">(Optional)</span></label>
+                           <input type="number" value={item.costPrice} onChange={e => setItem({...item, costPrice: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="0.00" />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.category}</label>
+                            <select value={item.category} onChange={e => setItem({...item, category: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold text-sm">
+                                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
                         </div>
                         <div>
                             <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
@@ -339,7 +442,7 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
                     </div>
                 </div>
                 <button onClick={handleSave} className="w-full mt-8 bg-purple-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-700 active:scale-[0.98] transition-all shadow-lg shadow-purple-200">
-                    {t.save_item_button}
+                    {initialItem ? 'Update Item' : t.save_item_button}
                 </button>
             </div>
         </div>
@@ -675,9 +778,13 @@ const InventoryTab: React.FC = () => {
     const [isVoiceSearching, setIsVoiceSearching] = useState(false);
     const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'stock' | 'category', direction: 'asc' | 'desc' } | null>({ key: 'name', direction: 'asc' });
     const [categoryFilter, setCategoryFilter] = useState<string>('all');
+    const [itemToDelete, setItemToDelete] = useState<InventoryItem | null>(null);
     
     // Quick Add Modal State local to this tab
     const [quickAddItem, setQuickAddItem] = useState<InventoryItem | null>(null);
+
+    // Edit Item State
+    const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
 
     // Toggle State for View Mode
     const [viewMode, setViewMode] = useState<'all' | 'low_stock'>('all');
@@ -791,7 +898,7 @@ const InventoryTab: React.FC = () => {
         setSortConfig({ key, direction });
     };
 
-    const updateInventory = (newItems: (Omit<ParsedBillItemFromImage, 'id'> | ReviewableItem)[]) => {
+    const updateInventory = (newItems: (Omit<ParsedBillItemFromImage, 'id'> | ReviewableItem & { id?: string, sellingPrice?: number })[], mode: 'accumulate' | 'overwrite' = 'accumulate') => {
       setInventory(prevInventory => {
         const updatedInventory = [...prevInventory];
         const now = new Date().toISOString();
@@ -801,30 +908,59 @@ const InventoryTab: React.FC = () => {
           const category = 'category' in newItem ? newItem.category : (newItem as any).suggestedCategory || 'Other';
           const lowStockThreshold = 'lowStockThreshold' in newItem ? newItem.lowStockThreshold : (newItem as any).lowStockThreshold || 10;
           
-          const existingItemIndex = updatedInventory.findIndex(
-            invItem => invItem.name.toLowerCase() === newItem.name.toLowerCase()
-          );
+          let existingItemIndex = -1;
+          
+          if ('id' in newItem && newItem.id) {
+               existingItemIndex = updatedInventory.findIndex(i => i.id === newItem.id);
+          }
+          
+          if (existingItemIndex === -1) {
+              existingItemIndex = updatedInventory.findIndex(
+                invItem => invItem.name.toLowerCase() === newItem.name.toLowerCase()
+              );
+          }
 
+          // Use provided selling price or calculate it (only for new items or accumulation if not provided)
           const sellingPrice = 'sellingPrice' in newItem ? newItem.sellingPrice : Math.ceil(newItem.price * 1.15);
 
           if (existingItemIndex > -1) {
             const existingItem = updatedInventory[existingItemIndex];
-            updatedInventory[existingItemIndex] = {
-              ...existingItem,
-              stock: existingItem.stock + newItem.quantity,
-              price: sellingPrice,
-              category,
-              lowStockThreshold,
-              lastUpdated: now,
-              purchasePriceHistory: [...existingItem.purchasePriceHistory, { price: newItem.price, date: now, quantity: newItem.quantity }]
-            };
+            
+            if (mode === 'overwrite') {
+                 // OVERWRITE MODE: Explicitly replace values (used for Editing)
+                 updatedInventory[existingItemIndex] = {
+                    ...existingItem,
+                    name: newItem.name,
+                    unit: newItem.unit,
+                    price: sellingPrice || existingItem.price,
+                    category: category,
+                    lowStockThreshold: lowStockThreshold,
+                    stock: newItem.quantity, // Set stock absolutely
+                    lastUpdated: now,
+                 };
+            } else {
+                // ACCUMULATE MODE: Add to existing (used for Scanning/Adding Stock)
+                updatedInventory[existingItemIndex] = {
+                  ...existingItem,
+                  name: newItem.name,
+                  stock: existingItem.stock + newItem.quantity,
+                  unit: newItem.unit, 
+                  price: sellingPrice || existingItem.price,
+                  category,
+                  lowStockThreshold,
+                  lastUpdated: now,
+                  purchasePriceHistory: newItem.quantity > 0 
+                    ? [...existingItem.purchasePriceHistory, { price: newItem.price, date: now, quantity: newItem.quantity }] 
+                    : existingItem.purchasePriceHistory
+                };
+            }
           } else {
             updatedInventory.push({
               id: generateId(),
               name: newItem.name,
               stock: newItem.quantity,
               unit: newItem.unit,
-              price: sellingPrice,
+              price: sellingPrice || 0,
               category,
               lowStockThreshold,
               lastUpdated: now,
@@ -836,8 +972,18 @@ const InventoryTab: React.FC = () => {
       });
     };
 
-    const handleSaveFromScan = (scannedItems: ReviewableItem[]) => { updateInventory(scannedItems); };
-    const handleSaveManualItem = (manualItem: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number }) => { updateInventory([manualItem]); };
+    const handleSaveFromScan = (scannedItems: ReviewableItem[]) => { updateInventory(scannedItems, 'accumulate'); };
+    
+    const handleSaveManualItem = (manualItem: Omit<ParsedBillItemFromImage, 'id'> & { lowStockThreshold: number, id?: string, sellingPrice: number }) => { 
+        if (manualItem.id) {
+            // If ID exists, it's an edit -> Overwrite
+            updateInventory([manualItem], 'overwrite');
+        } else {
+            // New Item -> Accumulate (adds new)
+            updateInventory([manualItem], 'accumulate');
+        }
+    };
+    
     const handleOpenHistory = (item: InventoryItem) => { setSelectedItem(item); setModal('history'); };
 
     const handleQuickAddStockConfirm = (itemId: string, quantity: number, price?: number, supplier?: string, sellingPrice?: number) => {
@@ -845,6 +991,22 @@ const InventoryTab: React.FC = () => {
         if(item) {
             addStock([{ inventoryId: itemId, quantity, name: item.name, price, supplier, sellingPrice }]);
         }
+    };
+    
+    const confirmDelete = () => {
+        if(itemToDelete) {
+            setInventory(prev => prev.filter(i => i.id !== itemToDelete.id));
+            setItemToDelete(null);
+        }
+    };
+
+    const handleDeleteInventoryItem = (item: InventoryItem) => {
+        setItemToDelete(item);
+    };
+    
+    const handleEditInventoryItem = (item: InventoryItem) => {
+        setEditingItem(item);
+        setModal('manual');
     };
 
     const toggleLowStockSelection = (id: string) => {
@@ -863,9 +1025,23 @@ const InventoryTab: React.FC = () => {
     
   return (
     <>
-      <AddItemChoiceModal isOpen={modal === 'choice'} onClose={() => setModal(null)} onScan={() => setModal('scan')} onManual={() => setModal('manual')} language={language} />
+      <ConfirmationModal 
+        isOpen={!!itemToDelete}
+        onClose={() => setItemToDelete(null)}
+        onConfirm={confirmDelete}
+        title="Delete Item?"
+        message={`Are you sure you want to delete "${itemToDelete?.name}"? This action cannot be undone.`}
+        language={language}
+      />
+      <AddItemChoiceModal isOpen={modal === 'choice'} onClose={() => setModal(null)} onScan={() => setModal('scan')} onManual={() => { setEditingItem(null); setModal('manual'); }} language={language} />
       <ScanBillModal isOpen={modal === 'scan'} onClose={() => setModal(null)} onSave={handleSaveFromScan} language={language} inventory={inventory} />
-      <ManualAddItemModal isOpen={modal === 'manual'} onClose={() => setModal(null)} onSave={handleSaveManualItem} language={language} />
+      <ManualAddItemModal 
+        isOpen={modal === 'manual'} 
+        onClose={() => { setModal(null); setEditingItem(null); }} 
+        onSave={handleSaveManualItem} 
+        language={language}
+        initialItem={editingItem}
+      />
       <PriceHistoryModal isOpen={modal === 'history'} onClose={() => { setModal(null); setSelectedItem(null); }} item={selectedItem} language={language} />
       <DraftOrderModal 
         isOpen={modal === 'draft_order'} 
@@ -983,10 +1159,9 @@ const InventoryTab: React.FC = () => {
                         key={item.id}
                         item={item}
                         onClick={() => handleOpenHistory(item)}
-                        onQuickAdd={(e) => {
-                            e.stopPropagation();
-                            setQuickAddItem(item);
-                        }}
+                        onQuickAdd={() => setQuickAddItem(item)}
+                        onEdit={() => handleEditInventoryItem(item)}
+                        onDelete={() => handleDeleteInventoryItem(item)}
                         language={language}
                     />
                 )) : (
