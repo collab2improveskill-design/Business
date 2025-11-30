@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle, MessageCircle, ShoppingCart, Send, Copy, Share2, ClipboardCheck, Package } from 'lucide-react';
+import { Plus, Search, UploadCloud, X, Loader, Trash2, Edit, ScanLine, PlusCircle, LineChart, Mic, Tag, AlertTriangle, ChevronDown, Bell, CheckCircle, MessageCircle, ShoppingCart, Send, Copy, Share2, ClipboardCheck, Package, MoreVertical } from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import type { InventoryItem, ParsedBillItemFromImage } from '../types';
 import { translations } from '../translations';
 import { parseInventoryFromImage } from '../services/geminiService';
@@ -43,26 +44,30 @@ const AddItemChoiceModal: React.FC<{ isOpen: boolean, onClose: () => void, onSca
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
-            <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col">
-                <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-xl font-bold">{t.add_item_choice_title}</h2>
-                    <button onClick={onClose}><X/></button>
+        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end animate-in slide-in-from-bottom-5">
+            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 flex flex-col shadow-2xl">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-gray-800">{t.add_item_choice_title}</h2>
+                    <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X className="w-5 h-5"/></button>
                 </div>
-                <p className="text-gray-500 mb-6">{t.add_item_choice_desc}</p>
+                <p className="text-gray-500 mb-6 text-sm">{t.add_item_choice_desc}</p>
                 <div className="space-y-4">
-                    <button onClick={handleScan} className="w-full flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                        <ScanLine className="w-8 h-8 text-purple-600" />
+                    <button onClick={handleScan} className="w-full flex items-center gap-4 p-5 border border-purple-100 bg-purple-50/50 rounded-2xl hover:bg-purple-100 transition-colors group">
+                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-purple-600 group-hover:scale-110 transition-transform">
+                            <ScanLine className="w-6 h-6" />
+                        </div>
                         <div>
-                            <p className="font-semibold text-left">{t.scan_bill_button}</p>
-                            <p className="text-sm text-gray-500 text-left">{t.upload_desc}</p>
+                            <p className="font-bold text-left text-gray-800">{t.scan_bill_button}</p>
+                            <p className="text-xs text-gray-500 text-left mt-0.5">{t.upload_desc}</p>
                         </div>
                     </button>
-                    <button onClick={handleManual} className="w-full flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                        <Edit className="w-8 h-8 text-purple-600" />
+                    <button onClick={handleManual} className="w-full flex items-center gap-4 p-5 border border-gray-100 bg-gray-50/50 rounded-2xl hover:bg-gray-100 transition-colors group">
+                         <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm text-gray-600 group-hover:scale-110 transition-transform">
+                            <Edit className="w-6 h-6" />
+                        </div>
                         <div>
-                            <p className="font-semibold text-left">{t.add_manually_button}</p>
-                            <p className="text-sm text-gray-500 text-left">{t.manual_entry_desc}</p>
+                            <p className="font-bold text-left text-gray-800">{t.add_manually_button}</p>
+                            <p className="text-xs text-gray-500 text-left mt-0.5">{t.manual_entry_desc}</p>
                         </div>
                     </button>
                 </div>
@@ -72,50 +77,148 @@ const AddItemChoiceModal: React.FC<{ isOpen: boolean, onClose: () => void, onSca
 };
 
 
-// --- PriceHistoryChart ---
-const PriceHistoryChart: React.FC<{ data: { price: number; date: string }[], language: 'ne' | 'en' }> = ({ data, language }) => {
-    const width = 300;
-    const height = 150;
-    const margin = { top: 20, right: 20, bottom: 30, left: 40 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
+// --- Crash-Proof Tooltip ---
+const CustomTooltip = ({ active, payload, label, language }: any) => {
+    // 1. Safety First: Logic check
+    if (!active || !payload || !payload.length) return null;
 
-    const parsedData = data.map(d => ({ ...d, date: new Date(d.date) })).sort((a,b) => a.date.getTime() - b.date.getTime());
-    if (parsedData.length === 0) return null;
-
-    const minPrice = Math.min(...parsedData.map(d => d.price));
-    const maxPrice = Math.max(...parsedData.map(d => d.price));
-    const minDate = parsedData[0].date;
-    const maxDate = parsedData[parsedData.length - 1].date;
-
-    const xScale = (date: Date) => {
-        if (maxDate.getTime() === minDate.getTime()) return innerWidth / 2;
-        return ((date.getTime() - minDate.getTime()) / (maxDate.getTime() - minDate.getTime())) * innerWidth;
-    };
-    
-    const yScale = (price: number) => {
-        if (maxPrice === minPrice) return innerHeight / 2;
-        return innerHeight - ((price - minPrice) / (maxPrice - minPrice)) * innerHeight;
-    };
-
-    const linePath = parsedData.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xScale(d.date)} ${yScale(d.price)}`).join(' ');
+    // Only access data after validation
+    const dataPoint = payload[0].payload;
+    const price = payload[0].value;
 
     return (
-        <svg width={width} height={height} className="w-full">
-            <g transform={`translate(${margin.left},${margin.top})`}>
-                {[0, 0.25, 0.5, 0.75, 1].map(tick => (
-                    <line key={tick} x1={0} x2={innerWidth} y1={innerHeight * tick} y2={innerHeight * tick} stroke="#e5e7eb" strokeWidth="0.5" />
-                ))}
-                <path d={linePath} fill="none" stroke="#8b5cf6" strokeWidth="2" />
-                {parsedData.map((d, i) => (
-                    <circle key={i} cx={xScale(d.date)} cy={yScale(d.price)} r="3" fill="#8b5cf6" />
-                ))}
-                <text x={-5} y={0} dy="0.32em" fontSize="10" textAnchor="end" fill="#6b7280">{maxPrice.toFixed(0)}</text>
-                <text x={-5} y={innerHeight} dy="0.32em" fontSize="10" textAnchor="end" fill="#6b7280">{minPrice.toFixed(0)}</text>
-                <text x={xScale(minDate)} y={innerHeight + 15} fontSize="10" textAnchor="middle" fill="#6b7280">{new Date(minDate).toLocaleDateString(language, {month: 'short', day: '2-digit'})}</text>
-                {maxDate.getTime() !== minDate.getTime() && <text x={xScale(maxDate)} y={innerHeight + 15} fontSize="10" textAnchor="middle" fill="#6b7280">{new Date(maxDate).toLocaleDateString(language, {month: 'short', day: '2-digit'})}</text>}
-            </g>
-        </svg>
+        <div className="bg-white p-3 border border-purple-100 rounded-xl shadow-xl z-50 min-w-[120px]">
+            <p className="text-xs text-gray-500 mb-1 font-medium">{formatDate(dataPoint.date, language)}</p>
+            <p className="text-lg font-bold text-purple-600 leading-none">
+                रू {Number(price).toFixed(0)}
+            </p>
+            {dataPoint.quantity && (
+                 <p className="text-[10px] text-gray-500 mt-1 bg-gray-100 inline-block px-1.5 py-0.5 rounded">
+                    Qty: {dataPoint.quantity}
+                 </p>
+            )}
+            {dataPoint.supplier && (
+                 <p className="text-[10px] text-gray-400 mt-1 truncate max-w-[150px]">
+                    {dataPoint.supplier}
+                 </p>
+            )}
+        </div>
+    );
+};
+
+// --- Robust PriceHistoryChart ---
+const PriceHistoryChart: React.FC<{ data: { price: number; date: string; quantity?: number; supplier?: string }[], language: 'ne' | 'en' }> = ({ data, language }) => {
+    // 1. Safety First: Data Validation
+    if (!data || data.length === 0) {
+        return <div className="text-gray-400 text-sm text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-200 mt-4 flex flex-col items-center gap-2">
+            <LineChart className="w-8 h-8 opacity-20" />
+            No price history available
+        </div>;
+    }
+
+    // Prepare sorted data
+    const chartData = useMemo(() => {
+        return [...data].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }, [data]);
+
+    // 2. Safe Domain Calculation: Helper variable (Prompt Requirement)
+    const yDomain = (chartData && chartData.length === 1) ? ['dataMin - 10', 'dataMax + 10'] : ['auto', 'auto'];
+
+    return (
+        // 3. Responsive Safety: Fixed height container
+        <div className="h-[250px] w-full mt-4 bg-white rounded-2xl border border-gray-100 p-2 shadow-sm relative overflow-hidden">
+            <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                        </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                    <XAxis 
+                        dataKey="date" 
+                        tickFormatter={(str) => {
+                             const d = new Date(str);
+                             return d.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', { month: 'short', day: 'numeric' });
+                        }}
+                        tick={{fontSize: 10, fill: '#9ca3af', fontWeight: 500}}
+                        axisLine={false}
+                        tickLine={false}
+                        minTickGap={30}
+                        dy={10}
+                    />
+                    <YAxis 
+                        domain={yDomain as any}
+                        tick={{fontSize: 10, fill: '#9ca3af', fontWeight: 500}}
+                        axisLine={false}
+                        tickLine={false}
+                    />
+                    <Tooltip 
+                        content={<CustomTooltip language={language} />} 
+                        cursor={{ stroke: '#8b5cf6', strokeWidth: 1, strokeDasharray: '4 4' }} 
+                    />
+                    <Area 
+                        type="monotone" 
+                        dataKey="price" 
+                        stroke="#8b5cf6" 
+                        strokeWidth={2.5}
+                        fillOpacity={1} 
+                        fill="url(#colorPrice)" 
+                        activeDot={{ r: 6, strokeWidth: 0, fill: '#8b5cf6' }}
+                        animationDuration={1000}
+                    />
+                </AreaChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
+
+
+// --- InventoryCard (Redesigned for Intuitive Use) ---
+const InventoryCard: React.FC<{ 
+    item: InventoryItem; 
+    onClick: () => void; 
+    onQuickAdd: (e: React.MouseEvent) => void;
+    language: 'ne' | 'en'; 
+}> = ({ item, onClick, onQuickAdd, language }) => {
+    const t = translations[language];
+    const isLowStock = item.stock <= item.lowStockThreshold;
+
+    return (
+        <div 
+            onClick={onClick}
+            className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-3 active:scale-[0.98] transition-all cursor-pointer hover:shadow-md hover:border-purple-100"
+        >
+            {/* Left Side: Avatar */}
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shrink-0 ${isLowStock ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                {item.name.charAt(0).toUpperCase()}
+            </div>
+
+            {/* Middle Section: Info */}
+            <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-gray-900 truncate text-base">{item.name}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-md truncate max-w-[80px]">{item.category}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-1 ${isLowStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {isLowStock && <AlertTriangle className="w-3 h-3"/>}
+                        {t.stock}: {item.stock} {item.unit}
+                    </span>
+                </div>
+            </div>
+
+            {/* Right Section: Price & Action */}
+            <div className="flex flex-col items-end gap-2 pl-2">
+                <p className="font-bold text-gray-900 text-sm">रू {item.price}</p>
+                <button 
+                    onClick={onQuickAdd}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-purple-600 text-white shadow-sm hover:bg-purple-700 active:bg-purple-800 transition-colors"
+                    aria-label={t.quick_add_stock}
+                >
+                    <Plus className="w-4 h-4" />
+                </button>
+            </div>
+        </div>
     );
 };
 
@@ -127,39 +230,47 @@ const PriceHistoryModal: React.FC<{ item: InventoryItem | null, isOpen: boolean,
     const chartData = item.purchasePriceHistory;
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
-            <div className="bg-white w-full max-w-md rounded-2xl p-5 flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">{t.price_history_title}</h2>
-                    <button onClick={onClose}><X/></button>
+        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4 animate-in fade-in zoom-in duration-200">
+            <div className="bg-white w-full max-w-md rounded-3xl p-6 flex flex-col max-h-[90vh] shadow-2xl">
+                <div className="flex justify-between items-center mb-1">
+                    <h2 className="text-xl font-bold text-gray-800">{t.price_history_title}</h2>
+                    <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X className="w-5 h-5"/></button>
                 </div>
-                <p className="text-center font-semibold text-gray-700 mb-2">{item.name}</p>
-                {chartData.length < 1 ? (
-                    <div className="h-[150px] flex items-center justify-center text-gray-500">{t.no_price_history}</div>
-                ) : (
-                    <PriceHistoryChart data={chartData} language={language} />
-                )}
+                <p className="text-sm font-medium text-purple-600 mb-4">{item.name}</p>
                 
-                <h3 className="font-bold text-lg mt-4 mb-2">{t.purchase_log}</h3>
-                <div className="flex-1 overflow-y-auto border rounded-lg">
+                {/* Robust Chart Component */}
+                <PriceHistoryChart data={chartData} language={language} />
+                
+                <h3 className="font-bold text-gray-800 text-lg mt-6 mb-3 flex items-center gap-2">
+                    <Package className="w-5 h-5 text-gray-400" />
+                    {t.purchase_log}
+                </h3>
+                <div className="flex-1 overflow-y-auto border border-gray-100 rounded-xl bg-gray-50/50">
                   <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-gray-500 uppercase bg-gray-50 sticky top-0">
+                    <thead className="text-xs text-gray-500 uppercase bg-gray-100 sticky top-0">
                       <tr>
-                        <th scope="col" className="px-2 py-2">{t.purchase_date}</th>
-                        <th scope="col" className="px-2 py-2 text-center">{t.qty_bought}</th>
-                        <th scope="col" className="px-2 py-2 text-right">{t.price_paid_per_unit}</th>
-                        <th scope="col" className="px-2 py-2 text-right">{t.supplier}</th>
+                        <th scope="col" className="px-3 py-3">{t.purchase_date}</th>
+                        <th scope="col" className="px-3 py-3 text-center">{t.qty_bought}</th>
+                        <th scope="col" className="px-3 py-3 text-right">{t.price_paid_per_unit}</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {item.purchasePriceHistory.slice().reverse().map((record, index) => (
-                        <tr key={index} className="bg-white border-b last:border-0">
-                          <td className="px-2 py-2">{formatDate(record.date, language)}</td>
-                          <td className="px-2 py-2 text-center">{record.quantity}</td>
-                          <td className="px-2 py-2 text-right">रू {record.price.toFixed(2)}</td>
-                          <td className="px-2 py-2 text-right text-xs text-gray-500 truncate max-w-[80px]">{record.supplier || '-'}</td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-gray-100">
+                      {item.purchasePriceHistory.length === 0 ? (
+                           <tr>
+                                <td colSpan={3} className="px-3 py-8 text-center text-gray-400 text-xs">{t.no_price_history}</td>
+                           </tr>
+                      ) : (
+                          item.purchasePriceHistory.slice().reverse().map((record, index) => (
+                            <tr key={index} className="bg-white hover:bg-purple-50 transition-colors">
+                              <td className="px-3 py-3 font-medium text-gray-600">
+                                  {formatDate(record.date, language)}
+                                  {record.supplier && <div className="text-[10px] text-gray-400 font-normal">{record.supplier}</div>}
+                              </td>
+                              <td className="px-3 py-3 text-center text-gray-600">{record.quantity}</td>
+                              <td className="px-3 py-3 text-right font-bold text-gray-800">रू {record.price.toFixed(0)}</td>
+                            </tr>
+                          ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -194,40 +305,40 @@ const ManualAddItemModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
 
     return (
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
-            <div className="bg-white w-full max-w-md rounded-t-2xl p-5 flex flex-col">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">{t.manual_entry_title}</h2>
-                    <button onClick={onClose}><X/></button>
+            <div className="bg-white w-full max-w-md rounded-t-3xl p-6 flex flex-col">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-gray-800">{t.manual_entry_title}</h2>
+                    <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><X className="w-5 h-5"/></button>
                 </div>
-                <div className="space-y-4">
+                <div className="space-y-5">
                     <div>
-                        <label className="text-sm font-medium text-gray-600">{t.item_name}</label>
-                        <input type="text" value={item.name} onChange={e => setItem({...item, name: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
+                        <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.item_name}</label>
+                        <input type="text" value={item.name} onChange={e => setItem({...item, name: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder={t.add_item_placeholder} autoFocus />
                     </div>
-                     <div className="grid grid-cols-2 gap-3">
+                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                           <label className="text-sm font-medium text-gray-600">{t.stock}</label>
-                           <input type="number" value={item.quantity} onChange={e => setItem({...item, quantity: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
+                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.stock}</label>
+                           <input type="number" value={item.quantity} onChange={e => setItem({...item, quantity: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="0" />
                         </div>
                         <div>
-                           <label className="text-sm font-medium text-gray-600">{t.unit}</label>
-                           <input type="text" value={item.unit} onChange={e => setItem({...item, unit: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
+                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.unit}</label>
+                           <input type="text" value={item.unit} onChange={e => setItem({...item, unit: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="pcs, kg..." />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
-                           <label className="text-sm font-medium text-gray-600">{t.purchase_price}</label>
-                           <input type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} className="w-full mt-1 p-2 border rounded-md" />
+                           <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 block">{t.purchase_price}</label>
+                           <input type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="0.00" />
                         </div>
                         <div>
-                            <label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
                                 {t.low_stock_threshold} <AlertTriangle className="w-3 h-3 text-orange-500" />
                             </label>
-                            <input type="number" value={item.lowStockThreshold} onChange={e => setItem({...item, lowStockThreshold: e.target.value})} className="w-full mt-1 p-2 border rounded-md" placeholder="e.g., 10" />
+                            <input type="number" value={item.lowStockThreshold} onChange={e => setItem({...item, lowStockThreshold: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none transition-all font-semibold" placeholder="10" />
                         </div>
                     </div>
                 </div>
-                <button onClick={handleSave} className="w-full mt-6 bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors">
+                <button onClick={handleSave} className="w-full mt-8 bg-purple-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-700 active:scale-[0.98] transition-all shadow-lg shadow-purple-200">
                     {t.save_item_button}
                 </button>
             </div>
@@ -317,14 +428,14 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
 
     return (
         <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-end">
-            <div className="bg-white w-full max-w-md rounded-t-2xl p-5 h-[90vh] flex flex-col">
+            <div className="bg-white w-full max-w-md rounded-t-3xl p-5 h-[90vh] flex flex-col">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold">{t.scan_bill_button}</h2>
                     <button onClick={handleClose}><X/></button>
                 </div>
                 <div className="flex-1 overflow-y-auto space-y-4">
                     {!imagePreview && (
-                        <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-2xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
                             <UploadCloud className="w-10 h-10 text-gray-400 mb-2"/>
                             <span className="font-semibold text-gray-600">{t.upload_bill}</span>
                             <span className="text-sm text-gray-500">{t.upload_desc}</span>
@@ -334,53 +445,68 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
 
                     {imagePreview && (
                         <div className="mb-4 text-center">
-                            <img src={imagePreview} alt="Bill preview" className="rounded-lg max-h-40 w-auto mx-auto"/>
-                            <button onClick={() => {setImagePreview(null); setImageFile(null); setReviewItems([])}} className="text-xs text-red-500 mt-2">{t.cancel}</button>
+                            <img src={imagePreview} alt="Bill preview" className="rounded-xl max-h-40 w-auto mx-auto shadow-md"/>
+                            <button onClick={() => {setImagePreview(null); setImageFile(null); setReviewItems([])}} className="text-xs text-red-500 mt-2 font-medium bg-red-50 px-3 py-1 rounded-full">{t.cancel}</button>
                         </div>
                     )}
 
 
                     {imageFile && !isProcessing && reviewItems.length === 0 && (
-                        <button onClick={processImage} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors mt-4">{t.scan_bill_button}</button>
+                        <button onClick={processImage} className="w-full bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition-colors mt-4 shadow-lg shadow-purple-200">{t.scan_bill_button}</button>
                     )}
                     
                     {isProcessing && (
-                         <div className="flex items-center justify-center gap-2 text-gray-600 p-4">
-                            <Loader className="w-6 h-6 animate-spin" />
-                            <span>{t.processing_image}</span>
+                         <div className="flex flex-col items-center justify-center gap-2 text-gray-600 p-8">
+                            <Loader className="w-8 h-8 animate-spin text-purple-600" />
+                            <span className="font-medium animate-pulse">{t.processing_image}</span>
                         </div>
                     )}
-                    {error && <p className="text-red-500 text-center p-2">{error}</p>}
+                    {error && <p className="text-red-500 bg-red-50 p-3 rounded-lg text-center text-sm">{error}</p>}
                     
                     {reviewItems.length > 0 && (
-                        <div className="space-y-3">
-                            <h3 className="font-bold text-lg">{t.edit_parsed_items}</h3>
-                            <div className="bg-gray-50 p-2 rounded-lg space-y-2">
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="font-bold text-lg">{t.edit_parsed_items}</h3>
+                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-bold">{reviewItems.length} items</span>
+                            </div>
+                            
+                            <div className="bg-gray-50 p-3 rounded-xl space-y-3">
                                 <div className="flex items-center gap-2">
                                     <input type="checkbox" checked={allSelected} onChange={e => handleSelectAll(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
-                                    <label className="text-sm font-medium">{t.select_all}</label>
+                                    <label className="text-sm font-medium text-gray-700">{t.select_all}</label>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
-                                    <button onClick={handleApplyMargin} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-md">{t.apply_margin}</button>
-                                    <button onClick={() => handleAssignCategory('Grocery')} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-md">{t.assign_category} 'Grocery'</button>
+                                    <button onClick={handleApplyMargin} className="text-xs bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-lg shadow-sm font-medium hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200 transition-colors">{t.apply_margin}</button>
+                                    <button onClick={() => handleAssignCategory('Grocery')} className="text-xs bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-lg shadow-sm font-medium hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200 transition-colors">{t.assign_category} 'Grocery'</button>
                                 </div>
                             </div>
                             {reviewItems.map((item) => (
-                                <div key={item.id} className="grid grid-cols-12 gap-2 items-start p-2 border rounded-lg">
-                                    <input type="checkbox" checked={item.isSelected} onChange={e => handleItemChange(item.id, 'isSelected', e.target.checked)} className="col-span-1 mt-2 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"/>
+                                <div key={item.id} className="grid grid-cols-12 gap-3 items-start p-3 border border-gray-100 rounded-xl bg-white shadow-sm">
+                                    <input type="checkbox" checked={item.isSelected} onChange={e => handleItemChange(item.id, 'isSelected', e.target.checked)} className="col-span-1 mt-3 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"/>
                                     <div className="col-span-11 space-y-2">
-                                        <input type="text" value={item.name} onChange={(e) => handleItemChange(item.id, 'name', e.target.value)} className="w-full p-2 border rounded-md text-sm font-semibold" />
-                                        {item.isNew && <span className="text-xs text-green-600 font-semibold ml-1">{t.new_item}</span>}
+                                        <div className="relative">
+                                            <input type="text" value={item.name} onChange={(e) => handleItemChange(item.id, 'name', e.target.value)} className="w-full p-2 border rounded-lg text-sm font-bold text-gray-800" />
+                                            {item.isNew && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">{t.new_item}</span>}
+                                        </div>
                                         <div className="grid grid-cols-5 gap-2">
-                                            <input type="number" value={item.quantity} onChange={(e) => handleItemChange(item.id, 'quantity', Number(e.target.value))} className="col-span-1 p-2 border rounded-md text-sm text-center" title={t.quantity} />
-                                            <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', Number(e.target.value))} className="col-span-2 p-2 border rounded-md text-sm text-center" title={t.purchase_price} />
-                                            <input type="number" value={item.sellingPrice} onChange={(e) => handleItemChange(item.id, 'sellingPrice', Number(e.target.value))} className="col-span-2 p-2 border rounded-md text-sm text-center bg-purple-50" title={t.selling_price} />
+                                            <div className="col-span-1">
+                                                 <label className="text-[10px] text-gray-400 block mb-0.5">{t.quantity}</label>
+                                                 <input type="number" value={item.quantity} onChange={(e) => handleItemChange(item.id, 'quantity', Number(e.target.value))} className="w-full p-2 border rounded-lg text-sm text-center font-semibold" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                 <label className="text-[10px] text-gray-400 block mb-0.5">{t.purchase_price}</label>
+                                                 <input type="number" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', Number(e.target.value))} className="w-full p-2 border rounded-lg text-sm text-center text-gray-600" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                 <label className="text-[10px] text-purple-600 block mb-0.5 font-bold">{t.selling_price}</label>
+                                                 <input type="number" value={item.sellingPrice} onChange={(e) => handleItemChange(item.id, 'sellingPrice', Number(e.target.value))} className="w-full p-2 border border-purple-200 bg-purple-50 rounded-lg text-sm text-center font-bold text-purple-700" />
+                                            </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-2">
-                                            <select value={item.category} onChange={e => handleItemChange(item.id, 'category', e.target.value)} className="w-full p-2 border rounded-md text-sm">
+                                            <select value={item.category} onChange={e => handleItemChange(item.id, 'category', e.target.value)} className="w-full p-2 border rounded-lg text-xs bg-gray-50 text-gray-600">
                                                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                             </select>
-                                            <input type="number" value={item.lowStockThreshold} onChange={e => handleItemChange(item.id, 'lowStockThreshold', Number(e.target.value))} className="w-full p-2 border rounded-md text-sm" placeholder={t.low_stock_threshold}/>
+                                            <input type="number" value={item.lowStockThreshold} onChange={e => handleItemChange(item.id, 'lowStockThreshold', Number(e.target.value))} className="w-full p-2 border rounded-lg text-xs" placeholder={t.low_stock_threshold}/>
                                         </div>
                                     </div>
                                 </div>
@@ -389,7 +515,7 @@ const ScanBillModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (i
                     )}
                 </div>
                  {reviewItems.length > 0 && (
-                    <button onClick={handleSave} className="w-full mt-4 bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition-colors">
+                    <button onClick={handleSave} className="w-full mt-4 bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 transition-colors shadow-lg shadow-green-200">
                         {t.save_to_inventory}
                     </button>
                  )}
@@ -763,50 +889,70 @@ const InventoryTab: React.FC = () => {
         />
 
       <div className="space-y-6 pb-24">
-        <h1 className="text-2xl font-bold text-gray-800">{t.inventory_management}</h1>
+        <h1 className="text-2xl font-bold text-gray-800 px-1">{t.inventory_management}</h1>
         
-        {/* New Toggle Control */}
-        <div className="bg-white p-1 rounded-xl shadow-sm flex gap-1 border border-gray-100">
-            <button
-                onClick={() => setViewMode('all')}
-                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                    viewMode === 'all' 
-                        ? 'bg-purple-100 text-purple-700 shadow-sm' 
-                        : 'text-gray-500 hover:bg-gray-50'
-                }`}
-            >
-                {t.all_inventory_tab}
-            </button>
-            <button
-                onClick={() => setViewMode('low_stock')}
-                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 relative ${
-                    viewMode === 'low_stock' 
-                        ? 'bg-red-50 text-red-600 shadow-sm ring-1 ring-red-100' 
-                        : 'text-gray-500 hover:bg-gray-50'
-                }`}
-            >
-                {t.low_stock_tab}
-                 {lowStockCount > 0 && (
-                    <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[1.2rem] flex items-center justify-center animate-pulse shadow-sm">
-                        {lowStockCount}
-                    </span>
-                 )}
-            </button>
-        </div>
+        {/* Sticky Header Wrapper for Search and Tabs */}
+        <div className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur-sm pt-2 pb-4 -mx-4 px-4 space-y-4 shadow-sm border-b border-gray-200">
+             {/* Toggle Control - Segmented Style */}
+            <div className="bg-gray-200/50 p-1.5 rounded-2xl flex relative">
+                <button
+                    onClick={() => setViewMode('all')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 relative z-10 ${
+                        viewMode === 'all' 
+                            ? 'bg-white text-purple-700 shadow-sm' 
+                            : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    {t.all_inventory_tab}
+                </button>
+                <button
+                    onClick={() => setViewMode('low_stock')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 relative z-10 flex items-center justify-center gap-2 ${
+                        viewMode === 'low_stock' 
+                            ? 'bg-white text-red-600 shadow-sm' 
+                            : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    {t.low_stock_tab}
+                    {lowStockCount > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full min-w-[1.2rem] flex items-center justify-center shadow-sm">
+                            {lowStockCount}
+                        </span>
+                    )}
+                </button>
+            </div>
 
-        <div className="bg-white rounded-xl p-2 shadow-sm space-y-2">
-          <div className="relative">
-            <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder={t.search_items} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-12 pr-12 py-3 border border-gray-200 bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"/>
-            <button onClick={handleVoiceSearch} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-200 transition-colors" aria-label="Search with voice">
-                <Mic className={`w-5 h-5 ${isVoiceSearching ? 'text-purple-600 animate-pulse' : 'text-gray-500'}`} />
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="w-full p-2 border border-gray-200 bg-gray-50 rounded-lg text-sm">
-                {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === 'all' ? t.all_items : cat}</option>)}
-            </select>
-          </div>
+            {/* Search Bar with Clear Button */}
+            <div className="bg-white rounded-2xl p-2 shadow-sm space-y-2 border border-gray-100 relative group focus-within:ring-2 ring-purple-100 transition-all">
+                <div className="relative flex items-center">
+                    <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-purple-500 transition-colors" />
+                    <input 
+                        type="text" 
+                        placeholder={t.search_items} 
+                        value={searchTerm} 
+                        onChange={(e) => setSearchTerm(e.target.value)} 
+                        className="w-full pl-10 pr-12 py-3 bg-transparent border-none rounded-lg focus:outline-none text-gray-800 font-medium placeholder-gray-400"
+                    />
+                    {searchTerm && (
+                        <button 
+                            onClick={() => setSearchTerm('')} 
+                            className="absolute right-10 top-1/2 -translate-y-1/2 p-1 text-gray-300 hover:text-gray-500 bg-gray-100 rounded-full transition-colors"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    )}
+                    <button onClick={handleVoiceSearch} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl hover:bg-gray-100 transition-colors" aria-label="Search with voice">
+                        <Mic className={`w-5 h-5 ${isVoiceSearching ? 'text-purple-600 animate-pulse' : 'text-gray-400'}`} />
+                    </button>
+                </div>
+                {searchTerm && (
+                     <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+                        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="p-2 border border-gray-200 bg-gray-50 rounded-lg text-xs font-semibold text-gray-600 outline-none">
+                            {uniqueCategories.map(cat => <option key={cat} value={cat}>{cat === 'all' ? t.all_items : cat}</option>)}
+                        </select>
+                    </div>
+                )}
+            </div>
         </div>
 
         {viewMode === 'low_stock' ? (
@@ -822,48 +968,33 @@ const InventoryTab: React.FC = () => {
                         language={language} 
                     />
                  )) : (
-                    <div className="p-12 text-center text-gray-500 flex flex-col items-center bg-white rounded-xl shadow-sm border border-dashed">
-                        <CheckCircle className="w-12 h-12 text-green-500 mb-3" />
-                        <p className="text-lg font-medium text-gray-800">All Good!</p>
+                    <div className="p-12 text-center text-gray-500 flex flex-col items-center bg-white rounded-2xl shadow-sm border border-dashed border-gray-200 mt-4">
+                        <CheckCircle className="w-16 h-16 text-green-100 fill-green-500 mb-4" />
+                        <p className="text-lg font-bold text-gray-800">All Good!</p>
                         <p className="text-sm">{t.no_low_stock_items}</p>
                     </div>
                  )}
             </div>
         ) : (
-            // LIST View for All Inventory
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden animate-in slide-in-from-bottom-2 fade-in duration-300">
-                <div className="p-4 grid grid-cols-5 gap-2 bg-gray-50 border-b text-xs font-bold text-gray-500">
-                    <button onClick={() => requestSort('name')} className="col-span-3 text-left flex items-center">{t.item_name} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'name' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
-                    <button onClick={() => requestSort('stock')} className="col-span-1 text-right flex items-center justify-end">{t.stock} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'stock' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
-                    <button onClick={() => requestSort('category')} className="col-span-1 text-right flex items-center justify-end">{t.category} <ChevronDown className={`w-4 h-4 transition-transform ${sortConfig?.key === 'category' && sortConfig.direction === 'desc' ? 'rotate-180': ''}`}/></button>
-                </div>
-                <div className="divide-y">
-                    {sortedAndFilteredInventory.length > 0 ? sortedAndFilteredInventory.map((item) => (
-                    <div key={item.id} onClick={() => handleOpenHistory(item)} className="p-4 grid grid-cols-5 gap-2 hover:bg-gray-50 cursor-pointer">
-                        <div className="col-span-3">
-                            <p className="font-medium text-gray-800 flex items-center gap-2">
-                                {item.stock <= item.lowStockThreshold && <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />}
-                                {item.name}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                            <Tag className="w-3 h-3 text-purple-600"/> {t.selling_price}: रू{item.price.toFixed(2)}
-                            </p>
-                        </div>
-                        <div className="col-span-1 text-right">
-                            <p className={`font-bold text-sm ${item.stock <= item.lowStockThreshold ? 'text-red-600' : 'text-gray-800'}`}>
-                                {item.stock} <span className="font-normal text-xs">{item.unit}</span>
-                            </p>
-                        </div>
-                        <div className="col-span-1 text-right">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{item.category}</span>
-                        </div>
+            // NEW: Professional Card List View
+            <div className="space-y-3 animate-in slide-in-from-bottom-2 fade-in duration-300 pb-20">
+                {sortedAndFilteredInventory.length > 0 ? sortedAndFilteredInventory.map((item) => (
+                    <InventoryCard 
+                        key={item.id}
+                        item={item}
+                        onClick={() => handleOpenHistory(item)}
+                        onQuickAdd={(e) => {
+                            e.stopPropagation();
+                            setQuickAddItem(item);
+                        }}
+                        language={language}
+                    />
+                )) : (
+                    <div className="p-10 text-center text-gray-400 flex flex-col items-center mt-8">
+                        <Package className="w-16 h-16 text-gray-200 mb-4" />
+                        <p className="font-medium">{t.no_items_found}</p>
                     </div>
-                    )) : (
-                        <div className="p-8 text-center text-gray-500 flex flex-col items-center">
-                            <p>{t.no_items_found}</p>
-                        </div>
-                    )}
-                </div>
+                )}
             </div>
         )}
       </div>
@@ -874,10 +1005,10 @@ const InventoryTab: React.FC = () => {
       {viewMode === 'all' && (
         <button 
             onClick={() => setModal('choice')} 
-            className={`fixed bottom-24 right-6 bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-110 z-30`}
+            className={`fixed bottom-24 right-6 bg-gray-900 text-white rounded-2xl p-4 shadow-xl shadow-purple-900/20 hover:scale-105 active:scale-95 transition-all duration-300 z-30 group`}
             aria-label="Add Item"
         >
-            <Plus className="w-6 h-6" />
+            <Plus className="w-6 h-6 group-hover:rotate-90 transition-transform duration-300" />
         </button>
       )}
 
@@ -885,7 +1016,7 @@ const InventoryTab: React.FC = () => {
       {viewMode === 'low_stock' && selectedLowStockIds.size > 0 && (
          <button 
             onClick={() => setModal('draft_order')} 
-            className={`fixed bottom-24 right-6 bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-full px-6 py-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 z-30 flex items-center gap-2 font-bold animate-in zoom-in`}
+            className={`fixed bottom-24 right-6 bg-green-600 text-white rounded-full px-6 py-4 shadow-xl hover:bg-green-700 transition-all duration-300 transform hover:scale-105 z-30 flex items-center gap-2 font-bold animate-in zoom-in`}
         >
             <Send className="w-5 h-5" />
             <span>{t.draft_order} ({selectedLowStockIds.size})</span>
