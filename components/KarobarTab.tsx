@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Plus, X, User, Phone, MapPin, UserPlus, Mic, Loader, Trash2, ShoppingCart, CheckCircle, BookPlus, Wallet, Check, Coins, ArrowUpRight, ArrowDownLeft, CheckCheck, Clock, AlertCircle, Sparkles, PartyPopper, ArrowUp, ArrowDown } from 'lucide-react';
 import { translations } from '../translations';
@@ -637,6 +638,9 @@ const KhataListView: React.FC<{
                 <div className="space-y-3 select-none">
                     {customersWithBalance.map(customer => {
                         const isSelected = selectedIds.has(customer.id);
+                        const isAdvance = customer.balance < 0;
+                        const isSettled = customer.balance === 0;
+
                         return (
                          <div 
                             key={customer.id} 
@@ -667,10 +671,12 @@ const KhataListView: React.FC<{
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className={`font-bold ${customer.balance > 0 ? 'text-red-600' : 'text-green-700'}`}>
-                                    रू {customer.balance.toFixed(2)}
+                                <p className={`font-bold ${isSettled ? 'text-green-600' : (isAdvance ? 'text-blue-600' : 'text-red-600')}`}>
+                                    रू {Math.abs(customer.balance).toFixed(2)}
                                 </p>
-                                <p className="text-xs text-gray-500">{customer.balance > 0 ? t.due : t.paid}</p>
+                                <div className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-1 ${isSettled ? 'bg-green-100 text-green-700' : (isAdvance ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700')}`}>
+                                    {isSettled ? t.settled : (isAdvance ? t.advance : t.due)}
+                                </div>
                             </div>
                         </div>
                         )

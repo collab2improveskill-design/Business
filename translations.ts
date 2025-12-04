@@ -192,6 +192,11 @@ export const translations = {
     selected: "छानिएको",
     delete_customer_warning: "चेतावनी: छानिएका ग्राहकहरूको बाँकी रकम रु {amount} छ। मेटाउँदा यी रेकर्डहरू सधैंको लागि हट्नेछन्। के तपाईं निश्चित हुनुहुन्छ?",
     add_item_placeholder: "सामानको नाम",
+    advance: "अग्रिम",
+    settled: "चुक्ता",
+    total_market_credit: "बजारमा कुल उधारो",
+    market_credit_desc: "उठ्न बाँकी रकम",
+    balance: "ब्यालेन्स",
     
     // Payment Modal New Logic
     settle_current_bill: "हालको बिल भुक्तानी",
@@ -201,6 +206,14 @@ export const translations = {
     math_bill_settled: "बिल चुक्ता भयो",
     math_advance: "अग्रिम / फिर्ता",
     enter_amount: "रकम प्रविष्ट गर्नुहोस्",
+    
+    // Analytics New Logic
+    sale_and_repayment: "बिक्री र पुरानो भुक्तानी",
+    debt_paid: "पुरानो ऋण तिरियो",
+    total_cash_in: "कुल नगद प्राप्त",
+    debt_repayment_received: "ऋण भुक्तानी प्राप्त",
+    from_sales: "बिक्रीबाट",
+    from_recovery: "उधारो असुली",
     
     // Payment Modal
     confirm_bill: "बिल पक्का गर्नुहोस्",
@@ -405,6 +418,11 @@ export const translations = {
     selected: "Selected",
     delete_customer_warning: "Warning: Selected customers have a remaining balance of Rs {amount}. Deleting will remove these records permanently. Are you sure?",
     add_item_placeholder: "Item name",
+    advance: "Advance",
+    settled: "Settled",
+    total_market_credit: "Total Market Credit",
+    market_credit_desc: "Total Receivables",
+    balance: "Balance",
 
     // Payment Modal New Logic
     settle_current_bill: "Settle Current Bill",
@@ -414,6 +432,14 @@ export const translations = {
     math_bill_settled: "Bill Settled",
     math_advance: "Advance / Change",
     enter_amount: "Enter Amount",
+
+    // Analytics New Logic
+    sale_and_repayment: "Sale & Debt Repayment",
+    debt_paid: "Debt Paid",
+    total_cash_in: "Total Cash In",
+    debt_repayment_received: "Debt Repayment Received",
+    from_sales: "From Sales",
+    from_recovery: "From Debt Recovery",
 
     // Payment Modal
     confirm_bill: "Confirm Bill",

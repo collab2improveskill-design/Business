@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo } from 'react';
 import { X, Search, UserPlus, Clock } from 'lucide-react';
 import type { KhataCustomer } from '../types';
@@ -97,6 +99,8 @@ const SelectKhataScreen: React.FC<SelectKhataScreenProps> = ({ isOpen, onClose, 
                     {filteredCustomers.map(customer => {
                         const balance = calculateBalance(customer);
                         const lastTxnDate = getLastTransactionDate(customer);
+                        const isAdvance = balance < 0;
+                        const isSettled = balance === 0;
 
                         return (
                             <li key={customer.id}>
@@ -120,12 +124,12 @@ const SelectKhataScreen: React.FC<SelectKhataScreenProps> = ({ isOpen, onClose, 
                                         )}
                                     </div>
                                      <div className="text-right">
-                                        <p className={`font-bold ${balance > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                                        <p className={`font-bold ${isSettled ? 'text-green-600' : (isAdvance ? 'text-blue-600' : 'text-red-600')}`}>
                                             रू {Math.abs(balance).toFixed(2)}
                                         </p>
-                                        <p className={`text-xs font-medium ${balance > 0 ? 'text-red-500' : 'text-green-600'}`}>
-                                            {balance > 0 ? t.due : t.paid}
-                                        </p>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${isSettled ? 'bg-green-100 text-green-700' : (isAdvance ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700')}`}>
+                                            {isSettled ? t.settled : (isAdvance ? t.advance : t.due)}
+                                        </span>
                                     </div>
                                 </button>
                             </li>
