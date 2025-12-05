@@ -206,6 +206,9 @@ export const translations = {
     math_bill_settled: "बिल चुक्ता भयो",
     math_advance: "अग्रिम / फिर्ता",
     enter_amount: "रकम प्रविष्ट गर्नुहोस्",
+    advance_not_supported: "अग्रिम भुक्तानी लिन मिल्दैन।",
+    payment_exceeds_due: "रकम कुल बाँकी भन्दा बढी भयो।",
+    max_allowed: "बढीमा: रु",
     
     // Analytics New Logic
     sale_and_repayment: "बिक्री र पुरानो भुक्तानी",
@@ -436,6 +439,9 @@ export const translations = {
     math_bill_settled: "Bill Settled",
     math_advance: "Advance / Change",
     enter_amount: "Enter Amount",
+    advance_not_supported: "Advance payments not currently supported.",
+    payment_exceeds_due: "Payment exceeds the total due amount.",
+    max_allowed: "Max allowed: Rs",
 
     // Analytics New Logic
     sale_and_repayment: "Sale & Debt Repayment",

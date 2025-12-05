@@ -1,6 +1,7 @@
 
+
 import React, { useState, useEffect } from 'react';
-import { X, DollarSign, QrCode } from 'lucide-react';
+import { X, DollarSign, QrCode, AlertTriangle } from 'lucide-react';
 import { translations } from '../translations';
 
 interface KhataPaymentModalProps {
@@ -44,16 +45,38 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
     }, [isOpen, isBillSettlementMode, todaysBillTotal, grandTotal]);
 
     const payAmount = parseFloat(amountToPay) || 0;
+    
+    // --- Validation Logic (No Advances) ---
+    // The user cannot pay more than the Total Due (Grand Total). 
+    // Even if in "Bill Mode", they can pay extra to cover old debt, but NOT more than total debt.
+    // Floating point safety margin of 1.00 to prevent annoying decimals blocking payment.
+    const maxAllowed = grandTotal;
+    const isAdvance = payAmount > (maxAllowed + 1); 
 
     // --- Math Logic ---
     let mathDisplay = null;
 
-    if (isBillSettlementMode) {
+    if (isAdvance) {
+         mathDisplay = (
+            <div className="flex flex-col items-center justify-center text-center py-2">
+                <div className="flex items-center gap-2 text-red-600 font-bold mb-1">
+                    <AlertTriangle className="w-5 h-5" />
+                    <span>{t.payment_exceeds_due}</span>
+                </div>
+                <p className="text-sm text-gray-500">{t.advance_not_supported}</p>
+                <p className="text-xs font-bold text-gray-700 mt-1 bg-gray-100 px-2 py-1 rounded">
+                    {t.max_allowed} {maxAllowed.toFixed(0)}
+                </p>
+            </div>
+         );
+    } else if (isBillSettlementMode) {
         // Scenario B: Bill Settlement
         // Logic: Current Bill - Payment = Added to Debt (or Advance)
         const balanceChange = todaysBillTotal - payAmount;
         const isSettled = Math.abs(balanceChange) < 1;
-        const isAdvance = balanceChange < 0;
+        // If balanceChange is negative here, it means they are paying MORE than the bill.
+        // This is allowed as "Debt Recovery" as long as it doesn't exceed Grand Total (checked by isAdvance above).
+        const isExtraPayment = balanceChange < 0; 
 
         mathDisplay = (
             <div className="flex items-center justify-between font-mono text-sm">
@@ -68,11 +91,11 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
                 </div>
                 <span className="text-gray-400 font-bold pb-3">=</span>
                 <div className="flex flex-col items-center">
-                    <span className={`font-extrabold ${isSettled ? 'text-gray-400' : (isAdvance ? 'text-green-600' : 'text-red-600')}`}>
-                        {isSettled ? '0' : (isAdvance ? Math.abs(balanceChange).toFixed(0) : balanceChange.toFixed(0))}
+                    <span className={`font-extrabold ${isSettled ? 'text-gray-400' : (isExtraPayment ? 'text-green-600' : 'text-red-600')}`}>
+                        {isSettled ? '0' : (isExtraPayment ? Math.abs(balanceChange).toFixed(0) : balanceChange.toFixed(0))}
                     </span>
                     <span className="text-[9px] text-gray-400 uppercase tracking-tight">
-                        {isSettled ? t.math_bill_settled : (isAdvance ? t.math_advance : t.math_added_to_due)}
+                        {isSettled ? t.math_bill_settled : (isExtraPayment ? t.from_recovery : t.math_added_to_due)}
                     </span>
                 </div>
             </div>
@@ -106,6 +129,8 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
 
     const handleConfirm = () => {
         if (!selectedMethod) return;
+        if (isAdvance) return; // Guard clause
+        
         if (!isNaN(payAmount) && payAmount > 0) {
             onConfirmPayment(payAmount, selectedMethod);
         } else {
@@ -131,25 +156,25 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
                         type="number"
                         value={amountToPay}
                         onChange={handleAmountChange}
-                        className="w-full mt-1 p-3 text-2xl font-bold border-2 rounded-md text-center focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        className={`w-full mt-1 p-3 text-2xl font-bold border-2 rounded-md text-center focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${isAdvance ? 'border-red-500 text-red-600 bg-red-50' : 'border-gray-200'}`}
                         autoFocus
                         placeholder="0"
                     />
                 </div>
 
                 {/* Dynamic Math Breakdown Section */}
-                <div className={`mb-6 p-3 rounded-xl border border-dashed ${isBillSettlementMode ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-300'}`}>
+                <div className={`mb-6 p-3 rounded-xl border ${isAdvance ? 'border-red-200 bg-red-50' : (isBillSettlementMode ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-300 border-dashed')}`}>
                     {mathDisplay}
                 </div>
                 
                 <div className="mb-6">
                     <label className="text-sm font-medium text-gray-600 mb-2 block">{t.payment_method}</label>
                      <div className="grid grid-cols-2 gap-3">
-                         <button onClick={() => setSelectedMethod('cash')} className={`flex items-center justify-center gap-2 p-3 border-2 rounded-lg ${selectedMethod === 'cash' ? 'border-green-500 bg-green-50' : 'border-gray-300'}`}>
+                         <button disabled={isAdvance} onClick={() => setSelectedMethod('cash')} className={`flex items-center justify-center gap-2 p-3 border-2 rounded-lg transition-colors ${selectedMethod === 'cash' ? 'border-green-500 bg-green-50' : 'border-gray-300'} ${isAdvance ? 'opacity-50 cursor-not-allowed' : ''}`}>
                             <DollarSign className="w-6 h-6 text-green-600" />
                             <span className="font-semibold">{t.pay_by_cash}</span>
                          </button>
-                         <button onClick={() => setSelectedMethod('qr')} className={`flex items-center justify-center gap-2 p-3 border-2 rounded-lg ${selectedMethod === 'qr' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}>
+                         <button disabled={isAdvance} onClick={() => setSelectedMethod('qr')} className={`flex items-center justify-center gap-2 p-3 border-2 rounded-lg transition-colors ${selectedMethod === 'qr' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'} ${isAdvance ? 'opacity-50 cursor-not-allowed' : ''}`}>
                             <QrCode className="w-6 h-6 text-blue-600" />
                             <span className="font-semibold">{t.pay_by_qr}</span>
                          </button>
@@ -158,7 +183,7 @@ const KhataPaymentModal: React.FC<KhataPaymentModalProps> = ({
 
                 <button 
                     onClick={handleConfirm}
-                    disabled={!selectedMethod || parseFloat(amountToPay) <= 0}
+                    disabled={!selectedMethod || parseFloat(amountToPay) <= 0 || isAdvance}
                     className="w-full py-3.5 rounded-lg font-bold bg-purple-600 text-white hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed">
                     {t.confirm_payment}
                 </button>

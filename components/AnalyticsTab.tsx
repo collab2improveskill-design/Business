@@ -71,7 +71,7 @@ const LOCAL_TEXT = {
        from_sales: "बिक्रीबाट",
        from_recovery: "उधारो असुली",
        source_breakdown: "स्रोत विवरण",
-       balance: "ब्यालेन्स"
+       balance: "बाँकी रकम"
    },
    en: {
        insight_title: "Daily Insight",
@@ -119,7 +119,7 @@ const LOCAL_TEXT = {
        from_sales: "From Sales",
        from_recovery: "From Debt Recovery",
        source_breakdown: "Source Breakdown",
-       balance: "Balance"
+       balance: "Remaining Balance"
    }
 };
 
@@ -829,28 +829,37 @@ const AnalyticsTab: React.FC = () => {
             };
         });
 
-        // 2. Credit Sales (Khata Bills)
+        // 2. Credit Sales (Khata Bills) - REMAINDER LOGIC
         const creditTxns: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
             cust.transactions
                 .filter(txn => txn.type === 'debit')
-                .map(txn => ({
-                    id: txn.id,
-                    type: 'credit',
-                    customerName: cust.name,
-                    amount: txn.amount, // Full Bill
-                    date: txn.date,
-                    description: txn.description,
-                    items: txn.items,
-                    originalType: 'khata',
-                    customerId: cust.id,
-                    paidAmount: 0, 
-                    // For analytics: Subtract immediate payment from the Credit Volume to avoid double counting Sales Volume
-                    totalAmount: txn.amount - (txn.immediatePayment || 0),
-                    totalOriginalAmount: txn.amount, // Keep track of full bill for display if needed
-                    meta: { ...txn.meta, remainingDue: (txn.meta?.previousDue || 0) - (txn.immediatePayment || 0) },
-                    isKhataPayment: false,
-                    source: 'sales'
-                }))
+                .map(txn => {
+                    const immediate = txn.immediatePayment || 0;
+                    const remaining = txn.amount - immediate;
+                    
+                    // If fully paid immediately, this transaction shouldn't exist as a 'credit' entry in the list
+                    // (The cash portion is already in globalTransactions)
+                    if (remaining < 0.01) return null;
+
+                    return {
+                        id: txn.id,
+                        type: 'credit' as const,
+                        customerName: cust.name,
+                        amount: remaining, // SHOW ONLY UNPAID PORTION
+                        date: txn.date,
+                        description: txn.description,
+                        items: txn.items,
+                        originalType: 'khata' as const,
+                        customerId: cust.id,
+                        paidAmount: 0, 
+                        totalAmount: remaining, // Use remaining for volume calc
+                        // removed totalOriginalAmount to prevent display confusion
+                        meta: { ...txn.meta, remainingDue: (txn.meta?.previousDue || 0) - immediate },
+                        isKhataPayment: false,
+                        source: 'sales' as const
+                    };
+                })
+                .filter((t): t is UnifiedTransaction => t !== null)
         );
 
         const all = [...globalTxns, ...creditTxns];
@@ -1063,6 +1072,19 @@ const AnalyticsTab: React.FC = () => {
              // It is a payment (Cash/QR) linked to this customer
              const paidAmt = txn.paidAmount || txn.amount;
              bal -= paidAmt;
+
+             // FIX: Handle Split Payment Part B (Recovery)
+             // If this is the recovery part, we must also subtract the immediate payment (Part A)
+             // from the balance, because both A and B happen at the same timestamp (Debit's timestamp)
+             // and the Debit's full amount was added in the reduce step above.
+             if (txn.id.endsWith('-B')) {
+                 const debitTxn = customer.transactions.find(t => 
+                    t.type === 'debit' && new Date(t.date).getTime() === currentTxnTime
+                 );
+                 if (debitTxn?.immediatePayment) {
+                     bal -= debitTxn.immediatePayment;
+                 }
+             }
         }
         
         return bal;
@@ -1267,9 +1289,10 @@ const AnalyticsTab: React.FC = () => {
                                     const historicalBalance = calculateHistoricalBalance(txn);
                                     const currentBalanceStatus = historicalBalance < 0 ? 'advance' : (historicalBalance > 0 ? 'due' : 'settled');
                                     
-                                    // Visual Fix: For credit sale, show the Original Amount for clarity in the list card, 
-                                    // but keep in mind 'total' variable is adjusted for Analytics charts.
-                                    const displayAmount = (txn as any).totalOriginalAmount || (isCreditSale ? total : paid);
+                                    // Display Logic
+                                    // If credit sale (split or full), show the calculated total amount (which is the remaining credit)
+                                    // If cash sale/payment, show the paid amount
+                                    const displayAmount = isCreditSale ? total : paid;
 
                                     return (
                                         <div key={txn.id} className="group relative bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-lg hover:border-purple-100 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4">
