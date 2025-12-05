@@ -214,6 +214,10 @@ export const translations = {
     debt_repayment_received: "ऋण भुक्तानी प्राप्त",
     from_sales: "बिक्रीबाट",
     from_recovery: "उधारो असुली",
+    pre_due: "पुरानो उधारो (Pre-Due)",
+    debt_recovered: "उधारो असुली",
+    part_payment: "आंशिक भुक्तानी",
+    credit_sale: "उधारो बिक्री",
     
     // Payment Modal
     confirm_bill: "बिल पक्का गर्नुहोस्",
@@ -440,6 +444,10 @@ export const translations = {
     debt_repayment_received: "Debt Repayment Received",
     from_sales: "From Sales",
     from_recovery: "From Debt Recovery",
+    pre_due: "Pre-Due",
+    debt_recovered: "Debt Recovered",
+    part_payment: "Part Payment",
+    credit_sale: "Credit Sale",
 
     // Payment Modal
     confirm_bill: "Confirm Bill",

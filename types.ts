@@ -34,6 +34,8 @@ export interface Transaction {
     previousDue?: number;
     remainingDue?: number;
     isSplitPayment?: boolean;
+    // New field to identify the nature of the split without hardcoding text
+    splitType?: 'part_payment' | 'pre_due' | 'debt_recovery' | 'full_payment'; 
   };
 }
 
@@ -96,6 +98,7 @@ export interface KhataTransaction {
     previousDue?: number;
     remainingDue?: number;
     isSplitPayment?: boolean;
+    splitType?: 'part_payment' | 'pre_due' | 'debt_recovery' | 'full_payment';
   };
 }
 
@@ -147,6 +150,7 @@ export interface UnifiedTransaction {
     previousDue?: number;
     remainingDue?: number;
     isSplitPayment?: boolean;
+    splitType?: 'part_payment' | 'pre_due' | 'debt_recovery' | 'full_payment';
   };
 }
 

@@ -213,64 +213,77 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const stockDeductionResult = deductStock(billItems);
         if (!stockDeductionResult.success) return stockDeductionResult;
 
-        let metaData: { previousDue?: number; remainingDue?: number; isSplitPayment?: boolean } = {};
+        const safeFloat = (n: any) => { const f = parseFloat(n); return isNaN(f) ? 0 : f; };
         
-        // This flag identifies if this payment corresponds to a new bill (Split Payment)
-        const isSystemPayment = billItems.length > 0 && amountPaid > 0;
+        // --- 1. Calculate Exact Components ---
+        const billTotal = safeFloat(billItems.reduce((sum, item) => sum + (safeFloat(item.price) * safeFloat(item.quantity)), 0));
+        const paidTotal = safeFloat(amountPaid);
 
+        // How much of the payment covers the NEW bill?
+        const cashComponent = Math.min(paidTotal, billTotal);
+        
+        // How much of the bill is left as credit?
+        const creditComponent = Math.max(0, billTotal - paidTotal);
+        
+        // How much of the payment is surplus (Recovery of OLD debt)?
+        const recoveryComponent = Math.max(0, paidTotal - billTotal);
+
+        // Flags
+        const isSystemPayment = billItems.length > 0 && paidTotal > 0;
+        const now = new Date();
+        const billDate = now.toISOString();
+        // Payment happens 1s later to keep order
+        const paymentDate = new Date(now.getTime() + 1000).toISOString();
+        const commonId = `txn-${Date.now()}`;
+
+        let metaData: { previousDue?: number; remainingDue?: number; isSplitPayment?: boolean } = {};
+
+        const billDescription = billItems.map(item => `${item.name} (${item.quantity} ${item.unit})`).join(', ');
+
+        // --- 2. Update Khata (Ledger) ---
         setKhataCustomers(prevCustomers => {
             return prevCustomers.map(cust => {
                 if (cust.id === customerId) {
                     const newTransactions: KhataTransaction[] = [];
-                    const billTotal = billItems.reduce((sum, item) => sum + (parseFloat(item.price) || 0) * (parseFloat(item.quantity) || 0), 0);
-
-                    // Capture current time base to ensure ordering
-                    const now = new Date();
-                    const billDate = now.toISOString();
-                    // Add 1 second to payment date so it is strictly "after" the bill in time sorting
-                    const paymentDate = new Date(now.getTime() + 1000).toISOString();
                     
-                    // Calculate balance snapshot
-                    // If previousDueOverride is passed, use it (useful for UI consistency), otherwise recalculate from history
+                    // Calculate snapshot for meta (optional but good for history)
                     let currentBalance = previousDueOverride ?? cust.transactions.reduce((acc, txn) =>
                         txn.type === 'debit' ? acc + txn.amount : acc - txn.amount
                     , 0);
 
-                    let balanceAfterBill = currentBalance;
-                    
+                    // A. Debit Transaction (The Bill)
                     if (billItems.length > 0) {
-                        balanceAfterBill += billTotal;
-                        const description = billItems.map(item => `${item.name} (${item.quantity} ${item.unit})`).join(', ');
+                        const balanceAfterBill = currentBalance + billTotal;
+                        
                         newTransactions.push({
                             id: `k-txn-${Date.now()}`,
                             date: billDate,
-                            description,
+                            description: billDescription,
                             amount: billTotal,
                             type: 'debit',
                             items: billItems.map(item => ({ inventoryId: item.inventoryId, quantity: item.quantity, name: item.name })),
-                            immediatePayment: amountPaid // Store the immediate payment here for Analytics
+                            // CRITICAL: Record exactly how much was paid IMMEDIATELY against THIS bill
+                            immediatePayment: cashComponent
                         });
+                        
+                        metaData = {
+                            previousDue: balanceAfterBill,
+                            remainingDue: balanceAfterBill - paidTotal,
+                            isSplitPayment: isSystemPayment
+                        };
                     }
-                    
-                    const remainingDue = balanceAfterBill - amountPaid;
-                    
-                    // Store metadata for this transaction cycle
-                    metaData = {
-                        previousDue: balanceAfterBill,
-                        remainingDue: remainingDue,
-                        isSplitPayment: isSystemPayment
-                    };
 
-                    if (amountPaid > 0) {
+                    // B. Credit Transaction (The Payment)
+                    if (paidTotal > 0.01) {
                         newTransactions.push({
                             id: `k-txn-${Date.now() + 1}`,
                             date: paymentDate,
                             description: t.payment_received_desc,
-                            amount: amountPaid,
+                            amount: paidTotal,
                             type: 'credit',
                             items: [],
-                            isAutoGenerated: isSystemPayment, // FLAG: Don't show in list if part of a split sale
-                            meta: metaData // Store it in Khata History
+                            isAutoGenerated: isSystemPayment, 
+                            meta: metaData
                         });
                     }
 
@@ -280,27 +293,76 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             });
         });
 
-        // Create a mirror transaction in the main sales record for "Recent Transactions" list consistency.
-        // Important: Only add if amountPaid > 0 to avoid empty 0 value transactions.
-        if (amountPaid > 0) {
-            // Find customer name safely
+        // --- 3. Update Global Transactions (Cash Flow) ---
+        
+        setTransactions(prev => {
+            const newGlobalTxns: Transaction[] = [];
             const customer = khataCustomers.find(c => c.id === customerId);
+            const customerName = customer?.name || 'Unknown';
+
+            // ENTRY 1: The Cash Sale part (covers the bill)
+            if (cashComponent > 0.01) {
+                // If there is NO credit left (Full Payment), it's just a regular sale.
+                // If there IS credit left, it's a "Part Payment".
+                const splitType = creditComponent > 0.01 ? 'part_payment' : 'full_payment';
+                
+                newGlobalTxns.push({
+                    id: `${commonId}-A`,
+                    customerName: customerName,
+                    amount: cashComponent,
+                    date: now.toISOString(),
+                    // IMPORTANT: We include the description in the global transaction so it appears fully populated in the Home list
+                    // but we keep items empty to prevent stock double-deduction if we ever re-process transactions
+                    items: [], 
+                    paymentMethod,
+                    khataCustomerId: customerId,
+                    meta: { 
+                        ...metaData, 
+                        isSplitPayment: true,
+                        splitType: splitType
+                    } 
+                });
+                // Note: We use a hack in the UnifiedTransaction builder to inject the description if items are empty
+            }
+
+            // ENTRY 2: The Recovery part (Surplus payment)
+            if (recoveryComponent > 0.01) {
+                newGlobalTxns.push({
+                    id: `${commonId}-B`,
+                    customerName: customerName,
+                    amount: recoveryComponent,
+                    date: now.toISOString(),
+                    items: [],
+                    paymentMethod,
+                    khataCustomerId: customerId,
+                    meta: { 
+                        ...metaData, 
+                        isSplitPayment: false,
+                        splitType: 'pre_due' // This represents paying off old debt
+                    }
+                });
+            }
             
-            const newSaleTransaction: Transaction = {
-                id: `txn-${Date.now()}`,
-                customerName: customer?.name || 'Unknown Khata',
-                amount: amountPaid,
-                date: new Date().toISOString(),
-                // NOTE: We do NOT pass items here for the Payment Transaction to avoid double counting 
-                // stock/items sold in Analytics. The "Sale" (Debit) record holds the items.
-                // This transaction purely represents CASH FLOW (Money In).
-                items: [], 
-                paymentMethod: paymentMethod,
-                khataCustomerId: customerId,
-                meta: metaData // Pass metadata to the global transaction list for Analytics
-            };
-            setTransactions(prev => [newSaleTransaction, ...prev]);
-        }
+            // ENTRY 3: Pure Debt Payment (No Bill, just paying old debt)
+            if (billItems.length === 0 && paidTotal > 0.01) {
+                 newGlobalTxns.push({
+                    id: commonId,
+                    customerName: customerName,
+                    amount: paidTotal,
+                    date: now.toISOString(),
+                    items: [],
+                    paymentMethod,
+                    khataCustomerId: customerId,
+                    meta: { 
+                        ...metaData, 
+                        isSplitPayment: false,
+                        splitType: 'debt_recovery'
+                    }
+                });
+            }
+
+            return [...newGlobalTxns.reverse(), ...prev]; 
+        });
 
         return { success: true };
     };
@@ -352,63 +414,99 @@ export const KiranaProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, [inventory]);
 
     const unifiedRecentTransactions = useMemo((): UnifiedTransaction[] => {
-        // 1. All Global Transactions (Cash Sales + Khata Payments)
-        const cashAndQrSales: UnifiedTransaction[] = transactions.map(txn => {
-            const isKhataPayment = !!txn.khataCustomerId;
-            const isSplitPayment = txn.meta?.isSplitPayment;
-            
-            return {
-                id: txn.id,
-                type: txn.paymentMethod as 'cash' | 'qr',
-                customerName: txn.customerName,
-                amount: txn.amount, // The cash amount received
-                date: txn.date,
-                // If it's a payment, show generic desc, else show items
-                description: isKhataPayment && txn.items.length === 0 
-                    ? 'Payment Received' 
-                    : txn.items.map(i => `${i.name} (Qty: ${i.quantity})`).join(', '),
-                items: txn.items,
-                originalType: 'transaction',
-                customerId: txn.khataCustomerId,
-                isKhataPayment: isKhataPayment,
+        const t = translations[language]; 
+        
+        // 1. Get ALL Global Transactions (Cash Sales + Khata Payments + Split Payments)
+        // These represent MONEY COMING IN (Green Cards).
+        const globalTransactions: UnifiedTransaction[] = transactions
+            .map(txn => {
+                const isKhataPayment = !!txn.khataCustomerId;
+                const splitType = txn.meta?.splitType;
                 
-                // Analytics Fields
-                // If it is a Split Payment (Cash part of a bill), treat it as 'sales' source and count its amount towards sales volume
-                totalAmount: (isKhataPayment && !isSplitPayment) ? 0 : txn.amount, 
-                paidAmount: txn.amount,
-                source: (isKhataPayment && !isSplitPayment) ? 'recovery' : 'sales',
-                meta: txn.meta
-            };
+                // Dynamic Naming based on current Language
+                let displayName = txn.customerName;
+                if (splitType === 'part_payment') displayName = `${txn.customerName} (${t.part_payment})`;
+                else if (splitType === 'pre_due') displayName = `${txn.customerName} (${t.pre_due})`;
+                else if (splitType === 'debt_recovery') displayName = `${txn.customerName} (${t.debt_recovered})`;
+
+                // If items are empty (because we moved logic to GlobalTxn in split payment),
+                // we try to infer a description.
+                let description = txn.items.length > 0 
+                     ? txn.items.map(i => `${i.name} (Qty: ${i.quantity})`).join(', ')
+                     : (isKhataPayment && txn.items.length === 0 ? t.payment_received_desc : '');
+                     
+                // Specific fix for "Paid Sale" looking empty
+                if (splitType === 'full_payment' && !description) description = "Items sold (See Khata)";
+
+                return {
+                    id: txn.id,
+                    type: txn.paymentMethod as 'cash' | 'qr',
+                    customerName: displayName,
+                    amount: txn.amount, 
+                    date: txn.date,
+                    description,
+                    items: txn.items,
+                    originalType: 'transaction',
+                    customerId: txn.khataCustomerId,
+                    isKhataPayment: isKhataPayment,
+                    
+                    // Analytics Fields
+                    totalAmount: (isKhataPayment && splitType !== 'part_payment' && splitType !== 'full_payment') ? 0 : txn.amount, 
+                    paidAmount: txn.amount,
+                    source: (splitType === 'pre_due' || splitType === 'debt_recovery') ? 'recovery' : 'sales',
+                    meta: txn.meta
+                };
+            });
+
+        // 2. Get Khata DEBIT Transactions (The Unpaid Bills)
+        // These represent MONEY OWED (Red Cards).
+        const creditTransactions: UnifiedTransaction[] = [];
+        
+        khataCustomers.forEach(cust => {
+             cust.transactions.forEach(txn => {
+                 if (txn.type === 'debit') {
+                     const amount = txn.amount || 0;
+                     const immediatePayment = txn.immediatePayment || 0;
+                     const remainingCredit = amount - immediatePayment;
+                     
+                     // REMAINDER LOGIC:
+                     // We only show a "Credit Sale" card for the amount that is *actually* still due.
+                     // If the bill was 100 and they paid 40:
+                     // - Global Txn shows 40 (Paid)
+                     // - This Credit Txn shows 60 (Due)
+                     // If bill was 100 and they paid 100:
+                     // - Global Txn shows 100 (Paid)
+                     // - This Credit Txn is HIDDEN (0 Due).
+                     
+                     if (remainingCredit > 0.01) {
+                         // Copy the item description from the Khata transaction
+                         // Note: We append " (Due)" to hint this is the remainder
+                         creditTransactions.push({
+                            id: txn.id,
+                            type: 'credit',
+                            customerName: `${cust.name} (${t.credit_sale})`, 
+                            amount: remainingCredit, // SHOW ONLY THE UNPAID PORTION
+                            date: txn.date,
+                            description: txn.description,
+                            items: txn.items,
+                            originalType: 'khata',
+                            customerId: cust.id,
+                            paidAmount: 0, 
+                            totalAmount: remainingCredit,
+                            meta: { ...txn.meta },
+                            isKhataPayment: false,
+                            source: 'sales'
+                        });
+                     }
+                 }
+             });
         });
 
-        // 2. Credit Sales (The BILLS)
-        // We separate Bills from Payments. A "Split Sale" will generate ONE Bill (Credit Sale) and ONE Payment (Cash Txn).
-        const creditSales: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
-            cust.transactions
-                .filter(txn => txn.type === 'debit')
-                .map(txn => ({
-                    id: txn.id,
-                    type: 'credit',
-                    customerName: cust.name,
-                    amount: txn.amount, // Full Bill Amount
-                    date: txn.date,
-                    description: txn.description,
-                    items: txn.items,
-                    originalType: 'khata',
-                    customerId: cust.id,
-                    paidAmount: 0, 
-                    // For analytics: Subtract immediate payment from the Credit Volume to avoid double counting Sales Volume
-                    totalAmount: txn.amount - (txn.immediatePayment || 0),
-                    meta: { ...txn.meta, remainingDue: (txn.meta?.previousDue || 0) - (txn.immediatePayment || 0) },
-                    isKhataPayment: false,
-                    source: 'sales'
-                }))
-        );
-
-        return [...cashAndQrSales, ...creditSales]
+        // Merge, Sort by Date Descending, then Slice
+        return [...globalTransactions, ...creditTransactions]
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-            .slice(0, 10); // Increased slice to show more context
-    }, [transactions, khataCustomers]);
+            .slice(0, 30);
+    }, [transactions, khataCustomers, language]);
 
     const value = {
         language, setLanguage, toggleLanguage,

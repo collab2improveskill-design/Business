@@ -70,7 +70,8 @@ const LOCAL_TEXT = {
        quantity_sold: "बिक्री मात्रा",
        from_sales: "बिक्रीबाट",
        from_recovery: "उधारो असुली",
-       source_breakdown: "स्रोत विवरण"
+       source_breakdown: "स्रोत विवरण",
+       balance: "ब्यालेन्स"
    },
    en: {
        insight_title: "Daily Insight",
@@ -117,7 +118,8 @@ const LOCAL_TEXT = {
        quantity_sold: "Qty Sold",
        from_sales: "From Sales",
        from_recovery: "From Debt Recovery",
-       source_breakdown: "Source Breakdown"
+       source_breakdown: "Source Breakdown",
+       balance: "Balance"
    }
 };
 
@@ -803,7 +805,7 @@ const AnalyticsTab: React.FC = () => {
         const startOfDay = new Date(dateRange.start); startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(dateRange.end); endOfDay.setHours(23, 59, 59, 999);
 
-        // 1. Global Transactions (Cash/QR Sales + Khata Payments)
+        // 1. Global Transactions (Cash Sales + Khata Payments)
         const globalTxns: UnifiedTransaction[] = transactions.map(txn => {
             const isKhataPayment = !!txn.khataCustomerId;
             const isSplitPayment = txn.meta?.isSplitPayment;
@@ -819,7 +821,7 @@ const AnalyticsTab: React.FC = () => {
                 originalType: 'transaction',
                 customerId: txn.khataCustomerId,
                 isKhataPayment: isKhataPayment,
-                // Logic Fix: If it is a split payment (cash part of a bill), treat it as a SALE source for analytics volume
+                // Logic Fix: If it is a split payment (cash part of a bill), treat it as 'sales' source and count its amount towards sales volume
                 totalAmount: (isKhataPayment && !isSplitPayment) ? 0 : txn.amount, 
                 paidAmount: txn.amount,
                 source: (isKhataPayment && !isSplitPayment) ? 'recovery' : 'sales',
@@ -842,7 +844,7 @@ const AnalyticsTab: React.FC = () => {
                     originalType: 'khata',
                     customerId: cust.id,
                     paidAmount: 0, 
-                    // Logic Fix: Reduce credit volume by any immediate payment to avoid double counting Sales Volume
+                    // For analytics: Subtract immediate payment from the Credit Volume to avoid double counting Sales Volume
                     totalAmount: txn.amount - (txn.immediatePayment || 0),
                     totalOriginalAmount: txn.amount, // Keep track of full bill for display if needed
                     meta: { ...txn.meta, remainingDue: (txn.meta?.previousDue || 0) - (txn.immediatePayment || 0) },
@@ -1032,6 +1034,40 @@ const AnalyticsTab: React.FC = () => {
         }
     }, [filteredTransactions, dateRange, isSingleDay, language, isToday]);
 
+    const calculateHistoricalBalance = (txn: UnifiedTransaction) => {
+        if (!txn.customerId) return 0;
+        const customer = khataCustomers.find(c => c.id === txn.customerId);
+        if (!customer) return 0;
+    
+        const currentTxnTime = new Date(txn.date).getTime();
+        
+        // Calculate ledger balance up to this transaction's timestamp
+        // This simulates a "Running Balance" or Passbook view
+        let bal = customer.transactions.reduce((acc, t) => {
+            const tTime = new Date(t.date).getTime();
+            // Include all transactions that happened before or at the exact same time
+            if (tTime <= currentTxnTime) {
+                return t.type === 'debit' ? acc + t.amount : acc - t.amount;
+            }
+            return acc;
+        }, 0);
+    
+        // Adjust for Global Payment transactions
+        // The ledger records the payment 1s later than the Global Transaction to maintain logical order (Bill then Payment).
+        // So the 'bal' calculated above (<= txn.date) does NOT include the payment credit yet.
+        // We manually subtract it to show the user the balance *after* this payment was made.
+        
+        const isCreditSale = txn.type === 'credit' && txn.source === 'sales';
+        
+        if (!isCreditSale) {
+             // It is a payment (Cash/QR) linked to this customer
+             const paidAmt = txn.paidAmount || txn.amount;
+             bal -= paidAmt;
+        }
+        
+        return bal;
+    };
+
     const handleDelete = () => {
         if (!confirmDelete) return;
         if (confirmDelete.originalType === 'transaction') deleteTransaction(confirmDelete.id);
@@ -1151,7 +1187,7 @@ const AnalyticsTab: React.FC = () => {
                         <div className="space-y-4">
                             <div className="flex items-center justify-between px-1"><h3 className="font-bold text-gray-800 text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-purple-600"/> {localT.recent_txn}</h3><span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">{filteredTransactions.length} Entries</span></div>
                             <div className="space-y-3">
-                                {filteredTransactions.length > 0 ? filteredTransactions.slice().reverse().map(txn => {
+                                {filteredTransactions.length > 0 ? filteredTransactions.map(txn => {
                                     
                                     const total = Number(txn.totalAmount) || 0;
                                     const paid = Number(txn.paidAmount) || 0;
@@ -1201,10 +1237,15 @@ const AnalyticsTab: React.FC = () => {
 
                                     // Special Card: Pure Debt Repayment
                                     if (isDebtPayment) {
+                                        const historicalBalance = calculateHistoricalBalance(txn);
                                         return (
                                             <div key={txn.id} className="group relative bg-white rounded-2xl p-4 border border-blue-100 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-lg transition-all duration-300">
                                                  <div className="flex justify-between items-start mb-2">
-                                                     <div><h4 className="font-bold text-gray-800">{txn.customerName}</h4><span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">{localT.debt_repayment_received}</span></div>
+                                                     <div>
+                                                         <h4 className="font-bold text-gray-800">{txn.customerName}</h4>
+                                                         <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">{localT.debt_repayment_received}</span>
+                                                         {txn.customerId && <p className={`text-[10px] font-medium mt-1 ${historicalBalance < 0 ? 'text-blue-500' : (historicalBalance > 0 ? 'text-red-500' : 'text-green-600')}`}>{localT.balance}: {Math.abs(historicalBalance).toFixed(0)}</p>}
+                                                     </div>
                                                      <div className="text-right"><p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p></div>
                                                  </div>
                                                  <div className="space-y-2 text-sm">
@@ -1223,9 +1264,8 @@ const AnalyticsTab: React.FC = () => {
                                     else if (isCreditSale) { theme = { ...theme, iconBg: 'bg-rose-100', iconColor: 'text-rose-600', amountColor: 'text-rose-700', icon: BookOpen }; }
 
                                     const Icon = theme.icon;
-                                    const customer = txn.customerId ? khataCustomers.find(c => c.id === txn.customerId) : null;
-                                    const balance = customer ? customer.transactions.reduce((acc, t) => t.type === 'debit' ? acc + t.amount : acc - t.amount, 0) : 0;
-                                    const currentBalanceStatus = balance < 0 ? 'advance' : (balance > 0 ? 'due' : 'settled');
+                                    const historicalBalance = calculateHistoricalBalance(txn);
+                                    const currentBalanceStatus = historicalBalance < 0 ? 'advance' : (historicalBalance > 0 ? 'due' : 'settled');
                                     
                                     // Visual Fix: For credit sale, show the Original Amount for clarity in the list card, 
                                     // but keep in mind 'total' variable is adjusted for Analytics charts.
@@ -1238,7 +1278,7 @@ const AnalyticsTab: React.FC = () => {
                                                 <div className="flex justify-between items-start mb-1">
                                                     <div>
                                                         <h4 className="font-bold text-gray-800 text-base truncate pr-2">{txn.customerName}</h4>
-                                                        {customer && <p className={`text-[10px] font-medium ${currentBalanceStatus === 'advance' ? 'text-blue-500' : (currentBalanceStatus === 'due' ? 'text-red-500' : 'text-green-600')}`}>{localT.balance}: {Math.abs(balance).toFixed(0)}</p>}
+                                                        {txn.customerId && <p className={`text-[10px] font-medium ${currentBalanceStatus === 'advance' ? 'text-blue-500' : (currentBalanceStatus === 'due' ? 'text-red-500' : 'text-green-600')}`}>{localT.balance}: {Math.abs(historicalBalance).toFixed(0)}</p>}
                                                     </div>
                                                     <span className={`font-extrabold text-lg ${theme.amountColor}`}>Rs. {displayAmount.toFixed(0)}</span>
                                                 </div>
