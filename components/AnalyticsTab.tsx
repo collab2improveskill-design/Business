@@ -690,7 +690,7 @@ const MultiLineChart: React.FC<{
 };
 
 const AnalyticsTab: React.FC = () => {
-    const { language, deleteTransaction, deleteKhataTransaction, transactions, khataCustomers } = useKirana();
+    const { language, deleteTransaction, deleteKhataTransaction, transactions, khataCustomers, unifiedRecentTransactions } = useKirana();
     const t = translations[language];
     const localT = LOCAL_TEXT[language] || LOCAL_TEXT['en'];
 
@@ -798,171 +798,140 @@ const AnalyticsTab: React.FC = () => {
         return `${dateRange.start.getDate()}/${dateRange.start.getMonth()+1} - ${dateRange.end.getDate()}/${dateRange.end.getMonth()+1}`;
     }, [dateLabel, isSingleDay, isToday, dateRange, language, localT]);
 
-    // --- Data Processing (Split Payments & No Double Counting) ---
-    const unifiedTransactions = useMemo((): UnifiedTransaction[] => {
-        const cashAndQrSales: UnifiedTransaction[] = transactions
-            .filter(txn => !(txn.khataCustomerId && txn.items.length > 0)) // Only standalone sales. Khata sales are handled below.
-            .map(txn => {
-                const isDebtPayment = txn.khataCustomerId && txn.items.length === 0;
-                return { 
-                    ...txn, 
-                    type: txn.paymentMethod as 'cash' | 'qr', 
-                    originalType: 'transaction', 
-                    description: isDebtPayment ? 'Payment Received' : txn.items.map(i => i.name).join(', '),
-                    totalAmount: isDebtPayment ? 0 : txn.amount, // Debt payment adds to cash flow but 0 sales
-                    paidAmount: txn.amount,
-                    customerId: txn.khataCustomerId,
-                    source: isDebtPayment ? 'recovery' : 'sales',
-                    isKhataPayment: isDebtPayment // Mark as mirror
-                };
-            });
-
-        const creditSales: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
-            cust.transactions
-                .filter(txn => txn.type === 'debit')
-                .map(txn => ({ 
-                    ...txn, 
-                    type: 'credit', 
-                    customerName: cust.name, 
-                    originalType: 'khata', 
-                    customerId: cust.id,
-                    totalAmount: txn.amount,
-                    paidAmount: txn.immediatePayment || 0,
-                    source: 'sales'
-                }))
-        );
-        
-        return [...cashAndQrSales, ...creditSales].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    }, [transactions, khataCustomers]);
-
+    // --- Filter Transactions for Date Range ---
     const filteredTransactions = useMemo(() => {
         const startOfDay = new Date(dateRange.start); startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(dateRange.end); endOfDay.setHours(23, 59, 59, 999);
-        return unifiedTransactions.filter(txn => {
+
+        // 1. Global Transactions (Cash/QR Sales + Khata Payments)
+        const globalTxns: UnifiedTransaction[] = transactions.map(txn => {
+            const isKhataPayment = !!txn.khataCustomerId;
+            const isSplitPayment = txn.meta?.isSplitPayment;
+
+            return {
+                id: txn.id,
+                type: txn.paymentMethod as 'cash' | 'qr',
+                customerName: txn.customerName,
+                amount: txn.amount,
+                date: txn.date,
+                description: isKhataPayment && txn.items.length === 0 ? 'Payment Received' : txn.items.map(i => `${i.name} (Qty: ${i.quantity})`).join(', '),
+                items: txn.items,
+                originalType: 'transaction',
+                customerId: txn.khataCustomerId,
+                isKhataPayment: isKhataPayment,
+                // Logic Fix: If it is a split payment (cash part of a bill), treat it as a SALE source for analytics volume
+                totalAmount: (isKhataPayment && !isSplitPayment) ? 0 : txn.amount, 
+                paidAmount: txn.amount,
+                source: (isKhataPayment && !isSplitPayment) ? 'recovery' : 'sales',
+                meta: txn.meta
+            };
+        });
+
+        // 2. Credit Sales (Khata Bills)
+        const creditTxns: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
+            cust.transactions
+                .filter(txn => txn.type === 'debit')
+                .map(txn => ({
+                    id: txn.id,
+                    type: 'credit',
+                    customerName: cust.name,
+                    amount: txn.amount, // Full Bill
+                    date: txn.date,
+                    description: txn.description,
+                    items: txn.items,
+                    originalType: 'khata',
+                    customerId: cust.id,
+                    paidAmount: 0, 
+                    // Logic Fix: Reduce credit volume by any immediate payment to avoid double counting Sales Volume
+                    totalAmount: txn.amount - (txn.immediatePayment || 0),
+                    totalOriginalAmount: txn.amount, // Keep track of full bill for display if needed
+                    meta: { ...txn.meta, remainingDue: (txn.meta?.previousDue || 0) - (txn.immediatePayment || 0) },
+                    isKhataPayment: false,
+                    source: 'sales'
+                }))
+        );
+
+        const all = [...globalTxns, ...creditTxns];
+        
+        return all.filter(txn => {
             const txnDate = new Date(txn.date);
             return txnDate >= startOfDay && txnDate <= endOfDay;
-        });
-    }, [unifiedTransactions, dateRange]);
+        }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const transactionsByDate = useMemo(() => {
-        const map = new Map<string, UnifiedTransaction[]>();
-        unifiedTransactions.forEach(txn => {
-            const dateKey = new Date(txn.date).toDateString();
-            if (!map.has(dateKey)) map.set(dateKey, []);
-            map.get(dateKey)?.push(txn);
-        });
-        return map;
-    }, [unifiedTransactions]);
+    }, [transactions, khataCustomers, dateRange]);
 
-    // --- Financial Calculations (Updated Logic) ---
+
+    // --- Financial Calculations ---
     const financialSummary = useMemo(() => {
         let moneyInHand = 0;
         let totalSales = 0;
         let totalMarketCredit = 0;
-        let salesMoney = 0;
-        let recoveryMoney = 0;
         let totalCreditIssued = 0;
         let totalRecoveryCollected = 0;
 
-        // Payment Distribution Breakdown (Robust Source of Truth)
         let totalCash = 0;
         let totalQr = 0;
         let totalCreditVolume = 0;
 
-        const startOfDay = new Date(dateRange.start); startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(dateRange.end); endOfDay.setHours(23, 59, 59, 999);
-
-        // 1. Calculate Money In (Cash/QR) from 'transactions' (Source of Truth for Cash Flow)
-        transactions.forEach(txn => {
-            const d = new Date(txn.date);
-            if (d >= startOfDay && d <= endOfDay) {
-                 if (txn.paymentMethod === 'cash') totalCash += txn.amount;
-                 if (txn.paymentMethod === 'qr') totalQr += txn.amount;
-            }
-        });
-
-        // 2. Calculate Credit Volume from 'khataCustomers' (Source of Truth for Credit)
+        // Calculate Market Credit (All Time)
         khataCustomers.forEach(cust => {
-            // Market Credit Snapshot
-            const balance = cust.transactions.reduce((acc, txn) => {
+             const balance = cust.transactions.reduce((acc, txn) => {
                 return txn.type === 'debit' ? acc + txn.amount : acc - txn.amount;
             }, 0);
             totalMarketCredit += balance;
-
-            // Daily Volume
-            cust.transactions.forEach(txn => {
-                if (txn.type === 'debit') { // Debit = Sale
-                    const d = new Date(txn.date);
-                    if (d >= startOfDay && d <= endOfDay) {
-                        const paid = txn.immediatePayment || 0;
-                        const creditPart = txn.amount - paid;
-                        if (creditPart > 0) totalCreditVolume += creditPart;
-                    }
-                }
-            });
         });
 
-        // 3. Loop through filteredTransactions for Sales Revenue Logic & List consistency
         filteredTransactions.forEach(txn => {
-            // SKIP mirror transactions in calculation to avoid double counting with Khata Credits
-            if (txn.originalType === 'transaction' && txn.isKhataPayment) return;
-
+            // Aggregation Logic
             const total = Number(txn.totalAmount) || 0;
             const paid = Number(txn.paidAmount) || 0;
-            const creditPart = Math.max(0, total - paid);
             
-            // LOGIC FIX: Handle Overpayment on a Sale (e.g. Bill 57, Paid 257)
+            // 1. Total Sales Volume (Bill Values)
             if (txn.source === 'sales') {
                  totalSales += total;
-                 
-                 // Track new credit issued (volume of items sold on credit)
-                 // This accumulates regardless of repayment
-                 totalCreditIssued += creditPart;
+            }
 
-                 if (paid > total) {
-                     // If paid is more than bill, strictly split:
-                     // 1. Sales Money = Bill Amount (57)
-                     // 2. Recovery Money = Paid - Bill (200)
-                     salesMoney += total;
-                     recoveryMoney += (paid - total);
-                 } else {
-                     salesMoney += paid;
-                 }
-            } else {
-                 // Pure recovery transaction
-                 recoveryMoney += paid;
+            // 2. Money In Hand (Cash Flow)
+            moneyInHand += paid;
+
+            // 3. Payment Distribution Breakdown
+            if (txn.type === 'cash') totalCash += paid;
+            if (txn.type === 'qr') totalQr += paid;
+            
+            // 4. Net Credit Calculation
+            if (txn.source === 'sales' && txn.type === 'credit') {
+                 // It's a bill (Credit Sale)
+                 // We count the whole bill as "Credit Issued" for volume
+                 totalCreditIssued += total;
+                 totalCreditVolume += total; 
+            } else if (txn.source === 'recovery') {
+                 // It's a payment against debt
                  totalRecoveryCollected += paid;
             }
-            
-            // NOTE: If source is 'sales' and paid > total (overpayment), the 'excess' (paid-total) 
-            // is effectively recovery of old debt.
-            if (txn.source === 'sales' && paid > total) {
-                totalRecoveryCollected += (paid - total);
-            }
-
-            // Cash Flow Calculation (Actual Money In)
-            moneyInHand += paid;
         });
 
-        // NET CREDIT ADDED LOGIC:
+        // Net Credit Added = New Debt Created - Old Debt Paid
         const netCreditAdded = Math.max(0, totalCreditIssued - totalRecoveryCollected);
 
         return {
-            totalCash, totalQr, totalCreditVolume, // For Donut
-            credit: netCreditAdded, // For Red Box
+            totalCash, totalQr, totalCreditVolume, 
+            credit: netCreditAdded, 
             moneyInHand,
             totalSales,
             totalMarketCredit,
-            salesMoney,
-            recoveryMoney
         };
-    }, [filteredTransactions, khataCustomers, transactions, dateRange]);
+    }, [filteredTransactions, khataCustomers]);
 
-    // ... (Top Products, Chart Data, Handle Delete remain mostly same) ...
+    // --- Top Products ---
     const topProducts = useMemo(() => {
         const productMap = new Map<string, number>();
         filteredTransactions.forEach(txn => {
-            if ((txn.totalAmount || 0) > 0) {
+            // IMPORTANT: Ignore items from Khata Payments (global txns) to avoid double counting items sold.
+            // Items are counted from the 'debit' transaction (Bill) or Cash Sale.
+            if (txn.isKhataPayment && !txn.meta?.isSplitPayment) return;
+
+            // Only count items if this transaction represents a sale event
+            if (txn.source === 'sales') {
                 txn.items.forEach(item => {
                     const qty = parseFloat(String(item.quantity)) || 0;
                     const name = item.name;
@@ -979,39 +948,24 @@ const AnalyticsTab: React.FC = () => {
 
     const chartData = useMemo((): MultiLinePoint[] => {
         if (isSingleDay) {
+             // ... Hourly Logic ...
              const hourlyMap = new Map<string, { cash: number, qr: number, credit: number }>();
              filteredTransactions.forEach(txn => {
-                // Skip mirror
-                if (txn.originalType === 'transaction' && txn.isKhataPayment) return;
-
                 const d = new Date(txn.date);
                 const hourKey = d.getHours().toString();
                 if (!hourlyMap.has(hourKey)) hourlyMap.set(hourKey, { cash: 0, qr: 0, credit: 0 });
                 const entry = hourlyMap.get(hourKey)!;
-                const total = Number(txn.totalAmount) || 0;
                 const paid = Number(txn.paidAmount) || 0;
-                const creditPart = Math.max(0, total - paid);
+                const total = Number(txn.totalAmount) || 0;
                 
                 if (txn.type === 'cash') entry.cash += paid;
                 else if (txn.type === 'qr') entry.qr += paid;
                 else if (txn.type === 'credit') {
-                    // This is Khata types
-                    if (txn.source === 'recovery') entry.cash += paid; // Assume cash for recovery
-                    else {
-                        // Khata Sale
-                        if (paid > total) {
-                            entry.cash += total; // Only count bill amount as sales cash for graph
-                            // The rest (recovery) is also cash, but logic might vary if you want to separate 'Recovery' line
-                            // For this graph, we'll sum them but logic is applied to prevent confusion
-                            // Actually, let's keep total paid cash as cash line for simplicity in visual flow
-                            entry.cash += (paid - total); 
-                        } else {
-                            entry.cash += paid;
-                        }
-                        entry.credit += creditPart;
-                    }
+                    // Credit Sale
+                    entry.credit += total; 
                 }
              });
+             
              const buckets: MultiLinePoint[] = [];
              const startTime = new Date(dateRange.start);
              startTime.setHours(5, 0, 0, 0); 
@@ -1044,6 +998,7 @@ const AnalyticsTab: React.FC = () => {
              }
              return buckets;
         } else {
+            // ... Daily Logic ...
             const days: MultiLinePoint[] = [];
             const cursor = new Date(dateRange.start);
             const end = new Date(dateRange.end);
@@ -1053,22 +1008,17 @@ const AnalyticsTab: React.FC = () => {
             let safety = 0;
             while (cursor <= normalizedEnd && safety < 40) {
                  const dateKey = cursor.toDateString();
-                 const dayTxns = transactionsByDate.get(dateKey) || [];
+                 // Filter for this specific day from already filteredTransactions to avoid redundant full scan
+                 const dayTxns = filteredTransactions.filter(t => new Date(t.date).toDateString() === dateKey);
+                 
                  let valCash = 0, valQr = 0, valCredit = 0;
                  dayTxns.forEach(txn => {
-                     // Skip mirror
-                     if (txn.originalType === 'transaction' && txn.isKhataPayment) return;
-
-                     const total = Number(txn.totalAmount) || 0;
                      const paid = Number(txn.paidAmount) || 0;
-                     const creditPart = Math.max(0, total - paid);
+                     const total = Number(txn.totalAmount) || 0;
                      
                      if (txn.type === 'cash') valCash += paid;
                      else if (txn.type === 'qr') valQr += paid;
-                     else if (txn.type === 'credit') {
-                         if (txn.source === 'recovery') valCash += paid;
-                         else { valCash += paid; valCredit += creditPart; }
-                     }
+                     else if (txn.type === 'credit') valCredit += total;
                  });
                  days.push({
                      timestamp: cursor.getTime(),
@@ -1080,7 +1030,7 @@ const AnalyticsTab: React.FC = () => {
             }
             return days;
         }
-    }, [filteredTransactions, dateRange, isSingleDay, transactionsByDate, language, isToday]);
+    }, [filteredTransactions, dateRange, isSingleDay, language, isToday]);
 
     const handleDelete = () => {
         if (!confirmDelete) return;
@@ -1164,7 +1114,7 @@ const AnalyticsTab: React.FC = () => {
                         <BrushSlider data={chartData} range={viewWindow} onChange={setViewWindow} />
                     </div>
 
-                    {/* NEW: Payment Distribution Breakdown Chart */}
+                    {/* Payment Distribution Breakdown Chart */}
                     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-4"><PieChart className="w-5 h-5 text-purple-600" /> {localT.payment_distribution}</h3>
                         <div className="flex items-center justify-between">
@@ -1202,31 +1152,20 @@ const AnalyticsTab: React.FC = () => {
                             <div className="flex items-center justify-between px-1"><h3 className="font-bold text-gray-800 text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-purple-600"/> {localT.recent_txn}</h3><span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">{filteredTransactions.length} Entries</span></div>
                             <div className="space-y-3">
                                 {filteredTransactions.length > 0 ? filteredTransactions.slice().reverse().map(txn => {
-                                    // FILTER: Skip Khata mirror transactions in the list to avoid duplicate visualization
-                                    if (txn.originalType === 'transaction' && txn.isKhataPayment) return null;
-
+                                    
                                     const total = Number(txn.totalAmount) || 0;
                                     const paid = Number(txn.paidAmount) || 0;
-                                    const isCombined = paid > 0 && total > 0 && paid !== total; // Partial or Advance
-                                    const isFullCredit = paid === 0 && total > 0;
-                                    const isFullPaid = paid === total;
-                                    const isPureDebtPayment = total === 0 && paid > 0;
+                                    const isCreditSale = txn.type === 'credit' && txn.source === 'sales';
+                                    const isPayment = txn.isKhataPayment || (txn.type !== 'credit' && !txn.isKhataPayment); // Cash Sale or Payment
                                     
-                                    // Check Advance Logic: If paid > previous due (at that moment), it is an advance.
-                                    // Note: previousDue in meta includes the current bill amount if it was a sale.
-                                    const previousDue = txn.meta?.previousDue || 0;
+                                    // Identify Advance or Debt Payment
+                                    const isDebtPayment = txn.source === 'recovery';
                                     const remainingDue = txn.meta?.remainingDue || 0;
-                                    
-                                    // Advance Detection: If the payment resulted in a negative balance (Advance)
                                     const isAdvance = remainingDue < 0;
 
                                     // Special Card: Advance Payment
-                                    if (isAdvance) {
+                                    if (isAdvance && isDebtPayment) {
                                          const advanceAmount = Math.abs(remainingDue);
-                                         // If it was a sale, the "Settled" amount is the bill amount + any previous debt cleared.
-                                         // Simplified: Settled = Paid - Advance
-                                         const settledAmount = paid - advanceAmount;
-
                                          return (
                                             <div 
                                                 key={txn.id} 
@@ -1245,15 +1184,6 @@ const AnalyticsTab: React.FC = () => {
                                                  </div>
                                                  
                                                  <div className="space-y-2 text-sm">
-                                                     <div className="flex justify-between text-gray-600 font-medium">
-                                                          <span>{localT.total} {localT.credit}/{localT.total} Bill</span>
-                                                          <span>Rs. {settledAmount.toFixed(0)}</span>
-                                                     </div>
-                                                     <div className="flex justify-between font-bold text-purple-600">
-                                                          <span>{localT.total} Advance</span>
-                                                          <span>+ Rs. {advanceAmount.toFixed(0)}</span>
-                                                     </div>
-                                                     <div className="border-t border-dashed border-gray-200"></div>
                                                      <div className="flex justify-between font-extrabold text-gray-800">
                                                           <span>{localT.total_cash_in}</span>
                                                           <span>Rs. {paid.toFixed(0)}</span>
@@ -1269,20 +1199,15 @@ const AnalyticsTab: React.FC = () => {
                                          );
                                     }
 
-                                    // Special Card: Combined Sale & Debt Repayment (But NOT Advance)
-                                    // Condition: Paid > Total Bill (but not advance) implies paying old debt
-                                    if (paid > total && total > 0 && !isAdvance) {
-                                        const debtPaidAmount = paid - total;
+                                    // Special Card: Pure Debt Repayment
+                                    if (isDebtPayment) {
                                         return (
                                             <div key={txn.id} className="group relative bg-white rounded-2xl p-4 border border-blue-100 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-lg transition-all duration-300">
                                                  <div className="flex justify-between items-start mb-2">
-                                                     <div><h4 className="font-bold text-gray-800">{txn.customerName}</h4><span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">{localT.sale_and_repayment}</span></div>
+                                                     <div><h4 className="font-bold text-gray-800">{txn.customerName}</h4><span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block mt-1">{localT.debt_repayment_received}</span></div>
                                                      <div className="text-right"><p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p></div>
                                                  </div>
                                                  <div className="space-y-2 text-sm">
-                                                     <div className="flex justify-between text-gray-600 font-medium"><span className="truncate pr-2 max-w-[200px]">{txn.description}</span><span>Rs. {total.toFixed(0)}</span></div>
-                                                     <div className="flex justify-between font-bold text-blue-600"><span>{localT.debt_paid}</span><span>+ Rs. {debtPaidAmount.toFixed(0)}</span></div>
-                                                     <div className="border-t border-dashed border-gray-200"></div>
                                                      <div className="flex justify-between font-extrabold text-gray-800"><span>{localT.total_cash_in}</span><span>Rs. {paid.toFixed(0)}</span></div>
                                                  </div>
                                                   <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(txn); }} className="absolute top-2 right-2 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Trash2 className="w-4 h-4" /></button>
@@ -1295,14 +1220,16 @@ const AnalyticsTab: React.FC = () => {
                                     let theme = { bg: 'bg-emerald-50', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', amountColor: 'text-emerald-700', icon: Wallet };
 
                                     if (isQr) { theme = { ...theme, iconBg: 'bg-sky-100', iconColor: 'text-sky-600', amountColor: 'text-sky-700', icon: QrCode }; }
-                                    else if (isFullCredit) { theme = { ...theme, iconBg: 'bg-rose-100', iconColor: 'text-rose-600', amountColor: 'text-rose-700', icon: BookOpen }; }
-                                    else if (isCombined && paid < total) { theme = { ...theme, iconBg: 'bg-orange-100', iconColor: 'text-orange-600', amountColor: 'text-orange-700', icon: BookOpen }; } // Partial Payment
-                                    else if (isPureDebtPayment) { theme = { ...theme, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', amountColor: 'text-blue-700', icon: CheckCheck }; }
+                                    else if (isCreditSale) { theme = { ...theme, iconBg: 'bg-rose-100', iconColor: 'text-rose-600', amountColor: 'text-rose-700', icon: BookOpen }; }
 
                                     const Icon = theme.icon;
                                     const customer = txn.customerId ? khataCustomers.find(c => c.id === txn.customerId) : null;
                                     const balance = customer ? customer.transactions.reduce((acc, t) => t.type === 'debit' ? acc + t.amount : acc - t.amount, 0) : 0;
                                     const currentBalanceStatus = balance < 0 ? 'advance' : (balance > 0 ? 'due' : 'settled');
+                                    
+                                    // Visual Fix: For credit sale, show the Original Amount for clarity in the list card, 
+                                    // but keep in mind 'total' variable is adjusted for Analytics charts.
+                                    const displayAmount = (txn as any).totalOriginalAmount || (isCreditSale ? total : paid);
 
                                     return (
                                         <div key={txn.id} className="group relative bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-lg hover:border-purple-100 hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4">
@@ -1313,18 +1240,16 @@ const AnalyticsTab: React.FC = () => {
                                                         <h4 className="font-bold text-gray-800 text-base truncate pr-2">{txn.customerName}</h4>
                                                         {customer && <p className={`text-[10px] font-medium ${currentBalanceStatus === 'advance' ? 'text-blue-500' : (currentBalanceStatus === 'due' ? 'text-red-500' : 'text-green-600')}`}>{localT.balance}: {Math.abs(balance).toFixed(0)}</p>}
                                                     </div>
-                                                    <span className={`font-extrabold text-lg ${theme.amountColor}`}>Rs. {(isPureDebtPayment ? paid : total).toFixed(0)}</span>
+                                                    <span className={`font-extrabold text-lg ${theme.amountColor}`}>Rs. {displayAmount.toFixed(0)}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center">
                                                     <div className="flex flex-col gap-0.5">
                                                         <div className="flex items-center gap-2 text-xs text-gray-500 font-medium"><span>{formatDateTime(txn.date, language).split(',')[1]?.trim() || formatDateTime(txn.date, language)}</span></div>
-                                                        {(isCombined && paid < total) && <p className="text-[10px] text-gray-400 font-medium mt-0.5">Paid: {paid.toFixed(0)} • Due: {(total - paid).toFixed(0)}</p>}
+                                                        <p className="text-[10px] text-gray-400 font-medium mt-0.5 truncate max-w-[150px]">{txn.description}</p>
                                                     </div>
                                                     <div className="flex items-center gap-3">
-                                                        {isFullCredit && <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-md font-bold border border-red-100">DUE</span>}
-                                                        {(isCombined && paid < total) && <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded-md font-bold border border-orange-100">PARTIAL</span>}
-                                                        {isFullPaid && !isPureDebtPayment && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-md font-bold border border-green-100 flex items-center gap-1"><CheckCheck className="w-3 h-3" /> PAID</span>}
-                                                        {isPureDebtPayment && <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md font-bold border border-blue-100 flex items-center gap-1">{localT.debt_repayment_received}</span>}
+                                                        {isCreditSale && <span className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-md font-bold border border-red-100">CREDIT SALE</span>}
+                                                        {!isCreditSale && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-md font-bold border border-green-100 flex items-center gap-1"><CheckCheck className="w-3 h-3" /> PAID</span>}
                                                         <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(txn); }} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Trash2 className="w-4 h-4" /></button>
                                                     </div>
                                                 </div>

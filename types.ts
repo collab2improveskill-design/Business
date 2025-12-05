@@ -33,6 +33,7 @@ export interface Transaction {
   meta?: {
     previousDue?: number;
     remainingDue?: number;
+    isSplitPayment?: boolean;
   };
 }
 
@@ -94,6 +95,7 @@ export interface KhataTransaction {
   meta?: {
     previousDue?: number;
     remainingDue?: number;
+    isSplitPayment?: boolean;
   };
 }
 
@@ -144,6 +146,7 @@ export interface UnifiedTransaction {
   meta?: {
     previousDue?: number;
     remainingDue?: number;
+    isSplitPayment?: boolean;
   };
 }
 
