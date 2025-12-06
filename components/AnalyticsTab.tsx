@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp, ArrowUpRight, CheckCheck, Trash2, QrCode, BookOpen, Trophy, Scale, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp, ArrowUpRight, CheckCheck, Trash2, QrCode, BookOpen, Trophy, Scale, Sparkles, ArrowDownLeft } from 'lucide-react';
 import { translations } from '../translations';
 import type { UnifiedTransaction } from '../types';
 import ConfirmationModal from './ConfirmationModal';
@@ -71,7 +71,8 @@ const LOCAL_TEXT = {
        from_sales: "बिक्रीबाट",
        from_recovery: "उधारो असुली",
        source_breakdown: "स्रोत विवरण",
-       balance: "बाँकी रकम"
+       balance: "बाँकी रकम",
+       debt_recovered: "उधारो असुली"
    },
    en: {
        insight_title: "Daily Insight",
@@ -119,7 +120,8 @@ const LOCAL_TEXT = {
        from_sales: "From Sales",
        from_recovery: "From Debt Recovery",
        source_breakdown: "Source Breakdown",
-       balance: "Remaining Balance"
+       balance: "Remaining Balance",
+       debt_recovered: "Debt Recovered"
    }
 };
 
@@ -877,14 +879,15 @@ const AnalyticsTab: React.FC = () => {
         let moneyInHand = 0;
         let totalSales = 0;
         let totalMarketCredit = 0;
-        let totalCreditIssued = 0;
-        let totalRecoveryCollected = 0;
 
         let totalCash = 0;
         let totalQr = 0;
-        let totalCreditVolume = 0;
+        let totalCreditVolume = 0; // Total Bill Value (for pie chart maybe?)
 
-        // Calculate Market Credit (All Time)
+        // Customer-wise bucket for Net Credit Logic
+        const customerBuckets: Record<string, { creditIssued: number, payment: number }> = {};
+
+        // Calculate Market Credit (All Time) - Unchanged
         khataCustomers.forEach(cust => {
              const balance = cust.transactions.reduce((acc, txn) => {
                 return txn.type === 'debit' ? acc + txn.amount : acc - txn.amount;
@@ -893,40 +896,62 @@ const AnalyticsTab: React.FC = () => {
         });
 
         filteredTransactions.forEach(txn => {
-            // Aggregation Logic
             const total = Number(txn.totalAmount) || 0;
             const paid = Number(txn.paidAmount) || 0;
             
-            // 1. Total Sales Volume (Bill Values)
+            // 1. Total Sales & Volume
             if (txn.source === 'sales') {
                  totalSales += total;
             }
 
-            // 2. Money In Hand (Cash Flow)
+            // 2. Money In Hand
             moneyInHand += paid;
 
-            // 3. Payment Distribution Breakdown
+            // 3. Distribution
             if (txn.type === 'cash') totalCash += paid;
             if (txn.type === 'qr') totalQr += paid;
-            
-            // 4. Net Credit Calculation
             if (txn.source === 'sales' && txn.type === 'credit') {
-                 // It's a bill (Credit Sale)
-                 // We count the whole bill as "Credit Issued" for volume
-                 totalCreditIssued += total;
-                 totalCreditVolume += total; 
-            } else if (txn.source === 'recovery') {
-                 // It's a payment against debt
-                 totalRecoveryCollected += paid;
+                 totalCreditVolume += total; // This is the credit portion of sales
+            }
+
+            // 4. Per-Customer Risk Calculation
+            if (txn.customerId) {
+                if (!customerBuckets[txn.customerId]) {
+                    customerBuckets[txn.customerId] = { creditIssued: 0, payment: 0 };
+                }
+                
+                // If it's a Credit Sale (Bill)
+                if (txn.source === 'sales' && txn.type === 'credit') {
+                    // txn.totalAmount here is the Credit Component (Bill - Immediate Pay)
+                    customerBuckets[txn.customerId].creditIssued += total;
+                }
+                
+                // If it's a Payment against debt
+                if (txn.source === 'recovery') {
+                    customerBuckets[txn.customerId].payment += paid;
+                }
             }
         });
 
-        // Net Credit Added = New Debt Created - Old Debt Paid
-        const netCreditAdded = Math.max(0, totalCreditIssued - totalRecoveryCollected);
+        // 5. Aggregate Net Credit Added & Debt Recovered
+        let netCreditAdded = 0;
+        let debtRecovered = 0;
+
+        Object.values(customerBuckets).forEach(bucket => {
+            const net = bucket.creditIssued - bucket.payment;
+            if (net > 0) {
+                netCreditAdded += net;
+            } else {
+                // If net is negative, it means they paid more than they took in credit today.
+                // The absolute value is the NET debt recovery for the day.
+                debtRecovered += Math.abs(net);
+            }
+        });
 
         return {
             totalCash, totalQr, totalCreditVolume, 
-            credit: netCreditAdded, 
+            credit: netCreditAdded, // REPLACED logic
+            debtRecovered,          // NEW metric
             moneyInHand,
             totalSales,
             totalMarketCredit,
@@ -1143,9 +1168,15 @@ const AnalyticsTab: React.FC = () => {
                                 <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide mb-1 break-words">{localT.actual_money_in}</p>
                                 <p className="text-2xl font-extrabold text-emerald-600">Rs.{financialSummary.moneyInHand.toFixed(0)}</p>
                             </div>
-                            <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                            <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 relative overflow-hidden">
                                 <p className="text-[10px] font-bold text-rose-800 uppercase tracking-wide mb-2">{localT.credit_sales}</p>
                                 <p className="text-2xl font-extrabold text-red-600">Rs.{financialSummary.credit.toFixed(0)}</p>
+                                {financialSummary.debtRecovered > 0 && (
+                                    <div className="mt-2 flex items-center gap-1 text-xs font-bold text-emerald-600 bg-white/60 px-2 py-1 rounded-lg w-fit">
+                                        <ArrowDownLeft className="w-3 h-3" />
+                                        {localT.debt_recovered}: Rs.{financialSummary.debtRecovered.toFixed(0)}
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
