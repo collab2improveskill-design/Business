@@ -410,13 +410,8 @@ const MultiLineChart: React.FC<{
     const yScale = (val: number) => innerHeight - ((val || 0) / yMax) * innerHeight;
 
     const createPath = (key: 'valCash' | 'valQr' | 'valCredit') => {
-        let points = visibleData;
+        const points = visibleData;
         
-        // 1. FILTERING LOGIC (Pulse Effect for Cash/QR)
-        if (mode === 'day' && (key === 'valCash' || key === 'valQr')) {
-            points = visibleData.filter(d => d[key] > 0);
-        }
-
         if (points.length === 0) return '';
 
         // 2. PATH CONSTRUCTION LOGIC
