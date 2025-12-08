@@ -72,7 +72,9 @@ const LOCAL_TEXT = {
        from_recovery: "उधारो असुली",
        source_breakdown: "स्रोत विवरण",
        balance: "बाँकी रकम",
-       debt_recovered: "उधारो असुली"
+       debt_recovered: "उधारो असुली",
+       cumulative_trend: "संचयी प्रवृत्ति (Cumulative Trend)",
+       sales_pulse: "बिक्री पल्स (Sales Pulse)"
    },
    en: {
        insight_title: "Daily Insight",
@@ -121,7 +123,9 @@ const LOCAL_TEXT = {
        from_recovery: "From Debt Recovery",
        source_breakdown: "Source Breakdown",
        balance: "Remaining Balance",
-       debt_recovered: "Debt Recovered"
+       debt_recovered: "Debt Recovered",
+       cumulative_trend: "Cumulative Trend",
+       sales_pulse: "Sales Pulse"
    }
 };
 
@@ -140,12 +144,6 @@ type TooltipData = {
     x: number;
     y: number;
     point: MultiLinePoint;
-};
-
-type DonutSlice = {
-    type: 'cash' | 'qr' | 'credit';
-    amount: number;
-    percentage: number;
 };
 
 type TopProduct = {
@@ -235,45 +233,20 @@ const CustomRangeModal: React.FC<{
 
     const handleSubmit = () => {
         setError(null);
-
-        // 1. Input Existence Validation
-        if (!start || !end) {
-            setError(localT.invalid_range);
-            return;
-        }
+        if (!start || !end) { setError(localT.invalid_range); return; }
 
         const sDate = new Date(start);
         const eDate = new Date(end);
         const today = new Date();
         today.setHours(23, 59, 59, 999);
 
-        // 2. Invalid Date Check (NaN)
-        if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) {
-             setError(localT.invalid_range);
-             return;
-        }
+        if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) { setError(localT.invalid_range); return; }
+        if (sDate > eDate) { setError(localT.invalid_range); return; }
+        if (eDate > today) { setError(localT.invalid_range); return; }
 
-        // 3. Logical Order Validation
-        if (sDate > eDate) {
-            setError(localT.invalid_range);
-            return;
-        }
-
-        // 4. Future Date Validation
-        if (eDate > today) {
-            setError(localT.invalid_range); 
-            return;
-        }
-
-        // 5. Range Limit Validation (DoS Prevention)
-        // Calculate difference in days
         const diffTime = Math.abs(eDate.getTime() - sDate.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        
-        if (diffDays > MAX_CUSTOM_RANGE_DAYS) {
-            setError(localT.range_limit_error);
-            return;
-        }
+        if (diffDays > MAX_CUSTOM_RANGE_DAYS) { setError(localT.range_limit_error); return; }
 
         onApply(sDate, eDate);
     };
@@ -285,24 +258,11 @@ const CustomRangeModal: React.FC<{
                     <h3 className="text-lg font-bold text-gray-800">{localT.custom_range}</h3>
                     <button onClick={onClose}><X className="w-5 h-5 text-gray-500" /></button>
                 </div>
-                
-                {error && (
-                    <div className="bg-red-50 text-red-600 text-xs p-2 rounded mb-4 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4"/> {error}
-                    </div>
-                )}
-
+                {error && (<div className="bg-red-50 text-red-600 text-xs p-2 rounded mb-4 flex items-center gap-2"><AlertCircle className="w-4 h-4"/> {error}</div>)}
                 <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-600 mb-1">{localT.start_date}</label>
-                        <input type="date" value={start} max={new Date().toISOString().split('T')[0]} onChange={(e) => setStart(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-600 mb-1">{localT.end_date}</label>
-                        <input type="date" value={end} max={new Date().toISOString().split('T')[0]} onChange={(e) => setEnd(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" />
-                    </div>
+                    <div><label className="block text-sm font-medium text-gray-600 mb-1">{localT.start_date}</label><input type="date" value={start} max={new Date().toISOString().split('T')[0]} onChange={(e) => setStart(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" /></div>
+                    <div><label className="block text-sm font-medium text-gray-600 mb-1">{localT.end_date}</label><input type="date" value={end} max={new Date().toISOString().split('T')[0]} onChange={(e) => setEnd(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" /></div>
                 </div>
-
                 <div className="flex justify-end gap-3 mt-6">
                     <button onClick={onClose} className="px-4 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg">{localT.cancel}</button>
                     <button onClick={handleSubmit} className="px-4 py-2 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700">{localT.apply}</button>
@@ -320,15 +280,14 @@ const BrushSlider: React.FC<{
 }> = ({ range, onChange, data }) => {
     if (!data || data.length === 0) return null;
     
+    // For visual shape
     const maxTotal = Math.max(...data.map(d => Math.max(d.valCash, d.valQr, d.valCredit))) || 1;
-    // Safety check for SVG path generation
     const safeMax = isFinite(maxTotal) && maxTotal > 0 ? maxTotal : 1;
 
     const minTime = data[0].timestamp;
     const maxTime = data[data.length - 1].timestamp;
     const timeRange = maxTime - minTime || 1;
 
-    // Use Total for brush preview
     const points = data.map((d) => {
         const x = ((d.timestamp - minTime) / timeRange) * 100;
         const y = 100 - ((d.total || 0) / safeMax) * 100;
@@ -353,30 +312,20 @@ const BrushSlider: React.FC<{
                     <polygon points={`0,100 ${points} 100,100`} fill="#8b5cf6" opacity="0.2" />
                  </svg>
             </div>
-            <div 
-                className="absolute top-0 bottom-0 bg-purple-500/10 border-x border-purple-500/30"
-                style={{ left: `${range[0]}%`, width: `${range[1] - range[0]}%` }}
-            />
+            <div className="absolute top-0 bottom-0 bg-purple-500/10 border-x border-purple-500/30" style={{ left: `${range[0]}%`, width: `${range[1] - range[0]}%` }} />
             <input type="range" min="0" max="100" value={range[0]} onChange={(e) => handleChange(e, 0)} className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20" aria-label="Zoom start" />
             <input type="range" min="0" max="100" value={range[1]} onChange={(e) => handleChange(e, 1)} className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20" aria-label="Zoom end" />
         </div>
     );
 };
 
-// 2. Interactive Payment Distribution Donut Chart (Cash/QR/Credit)
+// 2. Interactive Payment Distribution Donut Chart
 const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amount: number }[], localT: typeof LOCAL_TEXT.en }> = ({ data, localT }) => {
     const total = data.reduce((acc, curr) => acc + (curr.amount || 0), 0);
     const [hoveredSlice, setHoveredSlice] = useState<{ type: string; amount: number; percentage: number } | null>(null);
-    
     let accumulatedAngle = 0;
-
-    // Enhance data with percentages
-    const enhancedData = data.map(d => ({
-        ...d,
-        percentage: total > 0 ? (d.amount / total) * 100 : 0
-    }));
+    const enhancedData = data.map(d => ({ ...d, percentage: total > 0 ? (d.amount / total) * 100 : 0 }));
     
-    // Mapping for display colors and labels
     const MAP = {
         cash: { color: COLORS.cash, hover: COLORS_HOVER.cash, label: localT.cash },
         qr: { color: COLORS.qr, hover: COLORS_HOVER.qr, label: localT.qr },
@@ -394,53 +343,31 @@ const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amou
                     <p className="text-gray-400">{hoveredSlice.percentage.toFixed(1)}%</p>
                 </div>
             )}
-            
             <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full overflow-visible">
                 {enhancedData.map((slice) => {
                     if (slice.amount <= 0) return null;
                     const angle = (slice.amount / total) * 360;
                     const typeKey = slice.type as keyof typeof MAP;
-                    
-                    // Handle single slice case
                     if (angle >= 359.9) return <circle key={slice.type} cx="50" cy="50" r="50" fill={MAP[typeKey].color} onMouseEnter={() => setHoveredSlice(slice)} onMouseLeave={() => setHoveredSlice(null)} />;
-
+                    
                     const largeArcFlag = angle > 180 ? 1 : 0;
                     const startX = 50 + 50 * Math.cos((Math.PI * accumulatedAngle) / 180);
                     const startY = 50 + 50 * Math.sin((Math.PI * accumulatedAngle) / 180);
                     const endX = 50 + 50 * Math.cos((Math.PI * (accumulatedAngle + angle)) / 180);
                     const endY = 50 + 50 * Math.sin((Math.PI * (accumulatedAngle + angle)) / 180);
-                    
                     const pathData = `M 50 50 L ${startX} ${startY} A 50 50 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
-                    
                     accumulatedAngle += angle;
 
-                    return (
-                        <path 
-                            key={slice.type} 
-                            d={pathData} 
-                            fill={hoveredSlice?.type === slice.type ? MAP[typeKey].hover : MAP[typeKey].color} 
-                            stroke="white" 
-                            strokeWidth="2" 
-                            className="transition-colors duration-200 cursor-pointer"
-                            onMouseEnter={() => setHoveredSlice(slice)}
-                            onMouseLeave={() => setHoveredSlice(null)}
-                        />
-                    );
+                    return <path key={slice.type} d={pathData} fill={hoveredSlice?.type === slice.type ? MAP[typeKey].hover : MAP[typeKey].color} stroke="white" strokeWidth="2" className="transition-colors duration-200 cursor-pointer" onMouseEnter={() => setHoveredSlice(slice)} onMouseLeave={() => setHoveredSlice(null)} />;
                 })}
                 <circle cx="50" cy="50" r="35" fill="white" className="pointer-events-none" />
             </svg>
-            
-            {!hoveredSlice && (
-                <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
-                     <span className="text-[10px] text-gray-500 font-medium uppercase">Total</span>
-                     <span className="text-xs font-bold text-gray-800">{(total/1000).toFixed(1)}k</span>
-                </div>
-            )}
+            {!hoveredSlice && <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none"><span className="text-[10px] text-gray-500 font-medium uppercase">Total</span><span className="text-xs font-bold text-gray-800">{(total/1000).toFixed(1)}k</span></div>}
         </div>
     );
 };
 
-// 3. Main Multi-Line Chart
+// 3. Main Multi-Line Chart (HYBRID HEARTBEAT / MOUNTAIN)
 const MultiLineChart: React.FC<{
     data: MultiLinePoint[];
     viewWindow: [number, number];
@@ -461,13 +388,7 @@ const MultiLineChart: React.FC<{
 
     const safeData = useMemo(() => {
         if (!data || data.length === 0) return [{timestamp: Date.now(), label: '', valCash:0, valQr:0, valCredit:0, total:0}];
-        return data.map(d => ({
-            ...d,
-            valCash: isFinite(d.valCash) ? d.valCash : 0,
-            valQr: isFinite(d.valQr) ? d.valQr : 0,
-            valCredit: isFinite(d.valCredit) ? d.valCredit : 0,
-            total: isFinite(d.total) ? d.total : 0
-        }));
+        return data;
     }, [data]);
     
     const fullMinTime = safeData[0].timestamp;
@@ -479,7 +400,9 @@ const MultiLineChart: React.FC<{
     const visibleTimeRange = visibleMaxTime - visibleMinTime || 1;
 
     const visibleData = safeData.filter(d => d.timestamp >= visibleMinTime && d.timestamp <= visibleMaxTime);
-    const isEmpty = visibleData.every(d => d.total === 0);
+    
+    const isEmpty = visibleData.every(d => d.total === 0 && d.valCash === 0 && d.valQr === 0 && d.valCredit === 0);
+    
     const maxVal = Math.max(...visibleData.map(d => Math.max(d.valCash, d.valQr, d.valCredit))) || 0;
     const yMax = (isFinite(maxVal) && maxVal > 0) ? maxVal * 1.1 : 100;
 
@@ -487,28 +410,59 @@ const MultiLineChart: React.FC<{
     const yScale = (val: number) => innerHeight - ((val || 0) / yMax) * innerHeight;
 
     const createPath = (key: 'valCash' | 'valQr' | 'valCredit') => {
-        if (visibleData.length === 0) return `M 0 ${innerHeight} L ${innerWidth} ${innerHeight}`;
-        if (visibleData.length === 1) {
-            const y = yScale(visibleData[0][key]);
-            return `M 0 ${isFinite(y) ? y : innerHeight} L ${innerWidth} ${isFinite(y) ? y : innerHeight}`;
+        let points = visibleData;
+        
+        // 1. FILTERING LOGIC (Pulse Effect for Cash/QR)
+        if (mode === 'day' && (key === 'valCash' || key === 'valQr')) {
+            points = visibleData.filter(d => d[key] > 0);
         }
-        return visibleData.map((d, i) => {
+
+        if (points.length === 0) return '';
+
+        // 2. PATH CONSTRUCTION LOGIC
+        return points.map((d, i) => {
             const x = xScale(d.timestamp);
             const y = yScale(d[key]);
             const safeX = isFinite(x) ? x.toFixed(1) : '0';
             const safeY = isFinite(y) ? y.toFixed(1) : innerHeight.toString();
-            return `${i === 0 ? 'M' : 'L'} ${safeX} ${safeY}`;
+
+            if (i === 0) return `M ${safeX} ${safeY}`;
+
+            // STEP INTERPOLATION FOR CREDIT (Red Line)
+            // It holds the previous value horizontally, then jumps vertically
+            if (key === 'valCredit') {
+                const prev = points[i-1];
+                const prevY = yScale(prev[key]);
+                const safePrevY = isFinite(prevY) ? prevY.toFixed(1) : innerHeight.toString();
+                // Draw horizontal line to new X, but at OLD Y. Then vertical to NEW Y.
+                // This creates the "Step-After" look.
+                return `L ${safeX} ${safePrevY} L ${safeX} ${safeY}`;
+            }
+
+            // DIRECT LINE FOR CASH/QR (Pulse)
+            return `L ${safeX} ${safeY}`;
         }).join(' ');
     };
+    
+    const createAreaPath = (key: 'valCash' | 'valQr' | 'valCredit') => {
+        const linePath = createPath(key);
+        if (!linePath) return '';
+        
+        const points = visibleData; 
+        // For credit area, we need to match the step logic down to the axis
+        const lastPoint = points[points.length - 1];
+        const lastX = isFinite(xScale(lastPoint.timestamp)) ? xScale(lastPoint.timestamp).toFixed(1) : innerWidth;
+        const firstX = isFinite(xScale(points[0].timestamp)) ? xScale(points[0].timestamp).toFixed(1) : '0';
+        
+        return `${linePath} L ${lastX} ${innerHeight} L ${firstX} ${innerHeight} Z`;
+    }
 
     const handleMouseMove = (e: React.MouseEvent) => {
         if (!svgRef.current || visibleData.length === 0) return;
         const rect = svgRef.current.getBoundingClientRect();
         const mouseX = e.clientX - rect.left - margin.left;
         const clickedTime = (mouseX / innerWidth) * visibleTimeRange + visibleMinTime;
-        const closest = visibleData.reduce((prev, curr) => {
-            return (Math.abs(curr.timestamp - clickedTime) < Math.abs(prev.timestamp - clickedTime) ? curr : prev);
-        });
+        const closest = visibleData.reduce((prev, curr) => (Math.abs(curr.timestamp - clickedTime) < Math.abs(prev.timestamp - clickedTime) ? curr : prev));
 
         if (closest) {
              setTooltip({
@@ -523,16 +477,12 @@ const MultiLineChart: React.FC<{
     };
 
     const toggleFocus = (series: 'cash' | 'qr' | 'credit') => {
-        if (focusedSeries === series) {
-            setFocusedSeries('all');
-        } else {
-            setFocusedSeries(series);
-        }
+        setFocusedSeries(focusedSeries === series ? 'all' : series);
     };
 
     const getOpacity = (series: 'cash' | 'qr' | 'credit') => {
         if (focusedSeries === 'all') return 1;
-        return focusedSeries === series ? 1 : 0.2;
+        return focusedSeries === series ? 1 : 0.1;
     };
 
     const xTicks = useMemo(() => {
@@ -543,31 +493,38 @@ const MultiLineChart: React.FC<{
 
     const formatTick = (timestamp: number) => {
         const date = new Date(timestamp);
-        if (mode === 'day') {
-            return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        }
+        if (mode === 'day') return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         return date.toLocaleDateString([], {month:'short', day:'numeric'});
     };
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-wrap justify-center items-center gap-4 text-sm">
-                <button onClick={() => toggleFocus('cash')} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all border ${focusedSeries === 'cash' ? 'bg-green-50 border-green-200 ring-1 ring-green-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('cash') < 1 ? 0.4 : 1}}>
-                    <span className="w-3 h-3 rounded-full shadow-sm" style={{backgroundColor: COLORS.cash}}></span>
-                    <span className="font-medium text-gray-700">{localT.cash}</span>
-                </button>
-                <button onClick={() => toggleFocus('qr')} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all border ${focusedSeries === 'qr' ? 'bg-sky-50 border-sky-200 ring-1 ring-sky-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('qr') < 1 ? 0.4 : 1}}>
-                    <span className="w-3 h-3 rounded-full shadow-sm" style={{backgroundColor: COLORS.qr}}></span>
-                    <span className="font-medium text-gray-700">{localT.qr}</span>
-                </button>
-                <button onClick={() => toggleFocus('credit')} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all border ${focusedSeries === 'credit' ? 'bg-red-50 border-red-200 ring-1 ring-red-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('credit') < 1 ? 0.4 : 1}}>
-                    <span className="w-3 h-3 rounded-full shadow-sm" style={{backgroundColor: COLORS.credit}}></span>
-                    <span className="font-medium text-gray-700">{localT.credit}</span>
-                </button>
+            <div className="flex justify-between items-center px-1">
+                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mode === 'day' ? localT.sales_pulse : localT.cumulative_trend}</h4>
+                 <div className="flex flex-wrap justify-end items-center gap-2 text-xs">
+                    <button onClick={() => toggleFocus('cash')} className={`flex items-center gap-1.5 px-2 py-1 rounded-full transition-all border ${focusedSeries === 'cash' ? 'bg-green-50 border-green-200 ring-1 ring-green-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('cash') < 1 ? 0.4 : 1}}>
+                        <span className="w-2 h-2 rounded-full shadow-sm" style={{backgroundColor: COLORS.cash}}></span>
+                        <span className="font-medium text-gray-700">{localT.cash}</span>
+                    </button>
+                    <button onClick={() => toggleFocus('qr')} className={`flex items-center gap-1.5 px-2 py-1 rounded-full transition-all border ${focusedSeries === 'qr' ? 'bg-sky-50 border-sky-200 ring-1 ring-sky-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('qr') < 1 ? 0.4 : 1}}>
+                        <span className="w-2 h-2 rounded-full shadow-sm" style={{backgroundColor: COLORS.qr}}></span>
+                        <span className="font-medium text-gray-700">{localT.qr}</span>
+                    </button>
+                    <button onClick={() => toggleFocus('credit')} className={`flex items-center gap-1.5 px-2 py-1 rounded-full transition-all border ${focusedSeries === 'credit' ? 'bg-red-50 border-red-200 ring-1 ring-red-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('credit') < 1 ? 0.4 : 1}}>
+                        <span className="w-2 h-2 rounded-full shadow-sm" style={{backgroundColor: COLORS.credit}}></span>
+                        <span className="font-medium text-gray-700">{localT.credit}</span>
+                    </button>
+                </div>
             </div>
 
             <div className="relative bg-white">
                 <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} className="w-full h-auto touch-none select-none cursor-crosshair" onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)} aria-label="Sales Trend Chart" role="img">
+                     <defs>
+                        <linearGradient id="gradCredit" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={COLORS.credit} stopOpacity={0.4} />
+                            <stop offset="100%" stopColor={COLORS.credit} stopOpacity={0} />
+                        </linearGradient>
+                    </defs>
                     <g transform={`translate(${margin.left},${margin.top})`}>
                         <line x1={0} x2={innerWidth} y1={innerHeight} y2={innerHeight} stroke="#e5e7eb" />
                         <line x1={0} x2={0} y1={0} y2={innerHeight} stroke="#e5e7eb" />
@@ -583,20 +540,35 @@ const MultiLineChart: React.FC<{
                             let anchor: "start" | "middle" | "end" = 'middle';
                             if (i === 0) anchor = 'start';
                             if (i === xTicks.length - 1) anchor = 'end';
-                            return (
-                                <text key={i} x={isFinite(x) ? x : 0} y={innerHeight + 20} textAnchor={anchor} fontSize="10" fill="#9ca3af">
-                                    {formatTick(tick)}
-                                </text>
-                            );
+                            return <text key={i} x={isFinite(x) ? x : 0} y={innerHeight + 20} textAnchor={anchor} fontSize="10" fill="#9ca3af">{formatTick(tick)}</text>;
                         })}
 
+                        {/* RED SERIES (Mountain/Risk) - Area Filled */}
+                        {/* Uses Step Interpolation Logic */}
+                        <path d={createAreaPath('valCredit')} fill="url(#gradCredit)" stroke="none" opacity={getOpacity('credit')} style={{transition: 'opacity 0.3s'}} />
                         <path d={createPath('valCredit')} fill="none" stroke={COLORS.credit} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={getOpacity('credit')} style={{transition: 'opacity 0.3s'}}/>
+
+                        {/* GREEN/BLUE SERIES (Pulse/Heartbeat) - Lines Only, No Area */}
+                        {/* Important: These use the filtered path logic to skip 0s */}
                         <path d={createPath('valQr')} fill="none" stroke={COLORS.qr} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={getOpacity('qr')} style={{transition: 'opacity 0.3s'}}/>
                         <path d={createPath('valCash')} fill="none" stroke={COLORS.cash} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={getOpacity('cash')} style={{transition: 'opacity 0.3s'}}/>
                         
-                         {tooltip && (
-                            <line x1={tooltip.x - margin.left} x2={tooltip.x - margin.left} y1={0} y2={innerHeight} stroke="#cbd5e1" strokeDasharray="4 2" />
-                        )}
+                        {/* Data Points (Circles) to make single sales visible */}
+                        {mode === 'day' && visibleData.map((d, i) => {
+                             if (d.valCash > 0 && (focusedSeries === 'all' || focusedSeries === 'cash')) 
+                                return <circle key={`c-${i}`} cx={xScale(d.timestamp)} cy={yScale(d.valCash)} r="2" fill="white" stroke={COLORS.cash} strokeWidth="2" opacity={getOpacity('cash')} />;
+                             return null;
+                        })}
+                        {mode === 'day' && visibleData.map((d, i) => {
+                             if (d.valQr > 0 && (focusedSeries === 'all' || focusedSeries === 'qr')) 
+                                return <circle key={`q-${i}`} cx={xScale(d.timestamp)} cy={yScale(d.valQr)} r="2" fill="white" stroke={COLORS.qr} strokeWidth="2" opacity={getOpacity('qr')} />;
+                             return null;
+                        })}
+
+                         {tooltip && <line x1={tooltip.x - margin.left} x2={tooltip.x - margin.left} y1={0} y2={innerHeight} stroke="#cbd5e1" strokeDasharray="4 2" />}
+                         {tooltip && <circle cx={tooltip.x - margin.left} cy={yScale(tooltip.point.valCash)} r="4" fill="white" stroke={COLORS.cash} strokeWidth="2" />}
+                         {tooltip && <circle cx={tooltip.x - margin.left} cy={yScale(tooltip.point.valQr)} r="4" fill="white" stroke={COLORS.qr} strokeWidth="2" />}
+                         {tooltip && <circle cx={tooltip.x - margin.left} cy={yScale(tooltip.point.valCredit)} r="4" fill="white" stroke={COLORS.credit} strokeWidth="2" />}
                     </g>
                 </svg>
                 
@@ -610,54 +582,17 @@ const MultiLineChart: React.FC<{
                 )}
 
                 {tooltip && (
-                    <div 
-                        className="absolute pointer-events-none bg-white text-gray-800 text-xs rounded-lg p-3 shadow-xl z-50 w-48 space-y-1.5 border border-gray-200 transition-transform duration-75"
-                        style={{ 
-                            top: 0, 
-                            left: tooltip.x, 
-                            transform: tooltip.x > (width/2) ? 'translate(-105%, 0)' : 'translate(5%, 0)' // Smart positioning
-                        }}
-                    >
-                        <div className="font-bold border-b border-gray-100 pb-1 mb-1 flex items-center gap-1 text-gray-500">
-                            <Clock className="w-3 h-3"/> {tooltip.point.label}
-                        </div>
-                        
-                        {(focusedSeries === 'all' || focusedSeries === 'cash') && (
-                            <div className="flex justify-between items-center">
-                                <span className="flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500"></span> {localT.cash}</span>
-                                <span className="font-mono font-bold">Rs.{tooltip.point.valCash.toFixed(0)}</span>
-                            </div>
-                        )}
-                        
-                        {(focusedSeries === 'all' || focusedSeries === 'qr') && (
-                            <div className="flex justify-between items-center">
-                                <span className="flex items-center gap-1 text-sky-600"><span className="w-2 h-2 rounded-full bg-sky-500"></span> {localT.qr}</span>
-                                <span className="font-mono font-bold">Rs.{tooltip.point.valQr.toFixed(0)}</span>
-                            </div>
-                        )}
-
-                        {(focusedSeries === 'all' || focusedSeries === 'credit') && (
-                            <div className="flex justify-between items-center">
-                                <span className="flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> {localT.credit}</span>
-                                <span className="font-mono font-bold">Rs.{tooltip.point.valCredit.toFixed(0)}</span>
-                            </div>
-                        )}
-
-                        {focusedSeries === 'all' && (
-                             <div className="flex justify-between items-center pt-1 border-t border-gray-100 mt-1">
-                                <span className="font-bold text-gray-800">{localT.total}</span>
-                                <span className="font-mono font-bold text-purple-600">Rs.{tooltip.point.total.toFixed(0)}</span>
-                            </div>
-                        )}
+                    <div className="absolute pointer-events-none bg-white text-gray-800 text-xs rounded-lg p-3 shadow-xl z-50 w-48 space-y-1.5 border border-gray-200 transition-transform duration-75" style={{ top: 0, left: tooltip.x, transform: tooltip.x > (width/2) ? 'translate(-105%, 0)' : 'translate(5%, 0)' }}>
+                        <div className="font-bold border-b border-gray-100 pb-1 mb-1 flex items-center gap-1 text-gray-500"><Clock className="w-3 h-3"/> {tooltip.point.label}</div>
+                        {(focusedSeries === 'all' || focusedSeries === 'cash') && <div className="flex justify-between items-center"><span className="flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500"></span> {localT.cash}</span><span className="font-mono font-bold">Rs.{tooltip.point.valCash.toFixed(0)}</span></div>}
+                        {(focusedSeries === 'all' || focusedSeries === 'qr') && <div className="flex justify-between items-center"><span className="flex items-center gap-1 text-sky-600"><span className="w-2 h-2 rounded-full bg-sky-500"></span> {localT.qr}</span><span className="font-mono font-bold">Rs.{tooltip.point.valQr.toFixed(0)}</span></div>}
+                        {(focusedSeries === 'all' || focusedSeries === 'credit') && <div className="flex justify-between items-center"><span className="flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> {localT.credit}</span><span className="font-mono font-bold">Rs.{tooltip.point.valCredit.toFixed(0)}</span></div>}
                     </div>
                 )}
             </div>
             
             <div className="flex justify-center">
-                 <button 
-                    onClick={() => setShowTable(!showTable)} 
-                    className="text-xs text-purple-600 font-semibold flex items-center gap-2 hover:bg-purple-50 px-3 py-1.5 rounded-md transition-colors"
-                 >
+                 <button onClick={() => setShowTable(!showTable)} className="text-xs text-purple-600 font-semibold flex items-center gap-2 hover:bg-purple-50 px-3 py-1.5 rounded-md transition-colors">
                     {showTable ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                     {showTable ? localT.hide_table : localT.view_table}
                  </button>
@@ -671,18 +606,16 @@ const MultiLineChart: React.FC<{
                                 <th className="px-3 py-2 text-left text-xs font-bold text-gray-500 uppercase">{mode === 'day' ? localT.time : localT.date}</th>
                                 <th className="px-3 py-2 text-right text-xs font-bold text-green-600 uppercase">{localT.cash}</th>
                                 <th className="px-3 py-2 text-right text-xs font-bold text-sky-600 uppercase">{localT.qr}</th>
-                                <th className="px-3 py-2 text-right text-xs font-bold text-red-600 uppercase">{localT.credit}</th>
-                                <th className="px-3 py-2 text-right text-xs font-bold text-gray-700 uppercase">{localT.total}</th>
+                                <th className="px-3 py-2 text-right text-xs font-bold text-red-600 uppercase">{localT.credit} (Risk)</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {safeData.map((row, idx) => (
                                 <tr key={idx} className="hover:bg-gray-50">
                                     <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 font-medium">{row.label}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valCash}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valQr}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valCredit}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right font-bold text-gray-800">{row.total}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valCash.toFixed(0)}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valQr.toFixed(0)}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valCredit.toFixed(0)}</td>
                                 </tr>
                             ))}
                         </tbody>
@@ -839,23 +772,20 @@ const AnalyticsTab: React.FC = () => {
                     const immediate = txn.immediatePayment || 0;
                     const remaining = txn.amount - immediate;
                     
-                    // If fully paid immediately, this transaction shouldn't exist as a 'credit' entry in the list
-                    // (The cash portion is already in globalTransactions)
                     if (remaining < 0.01) return null;
 
                     return {
                         id: txn.id,
                         type: 'credit' as const,
                         customerName: cust.name,
-                        amount: remaining, // SHOW ONLY UNPAID PORTION
+                        amount: remaining, 
                         date: txn.date,
                         description: txn.description,
                         items: txn.items,
                         originalType: 'khata' as const,
                         customerId: cust.id,
                         paidAmount: 0, 
-                        totalAmount: remaining, // Use remaining for volume calc
-                        // removed totalOriginalAmount to prevent display confusion
+                        totalAmount: remaining, 
                         meta: { ...txn.meta, remainingDue: (txn.meta?.previousDue || 0) - immediate },
                         isKhataPayment: false,
                         source: 'sales' as const
@@ -879,15 +809,11 @@ const AnalyticsTab: React.FC = () => {
         let moneyInHand = 0;
         let totalSales = 0;
         let totalMarketCredit = 0;
-
         let totalCash = 0;
         let totalQr = 0;
-        let totalCreditVolume = 0; // Total Bill Value (for pie chart maybe?)
-
-        // Customer-wise bucket for Net Credit Logic
+        let totalCreditVolume = 0; 
         const customerBuckets: Record<string, { creditIssued: number, payment: number }> = {};
 
-        // Calculate Market Credit (All Time) - Unchanged
         khataCustomers.forEach(cust => {
              const balance = cust.transactions.reduce((acc, txn) => {
                 return txn.type === 'debit' ? acc + txn.amount : acc - txn.amount;
@@ -899,59 +825,33 @@ const AnalyticsTab: React.FC = () => {
             const total = Number(txn.totalAmount) || 0;
             const paid = Number(txn.paidAmount) || 0;
             
-            // 1. Total Sales & Volume
-            if (txn.source === 'sales') {
-                 totalSales += total;
-            }
-
-            // 2. Money In Hand
+            if (txn.source === 'sales') totalSales += total;
             moneyInHand += paid;
 
-            // 3. Distribution
             if (txn.type === 'cash') totalCash += paid;
             if (txn.type === 'qr') totalQr += paid;
-            if (txn.source === 'sales' && txn.type === 'credit') {
-                 totalCreditVolume += total; // This is the credit portion of sales
-            }
+            if (txn.source === 'sales' && txn.type === 'credit') totalCreditVolume += total;
 
-            // 4. Per-Customer Risk Calculation
             if (txn.customerId) {
-                if (!customerBuckets[txn.customerId]) {
-                    customerBuckets[txn.customerId] = { creditIssued: 0, payment: 0 };
-                }
-                
-                // If it's a Credit Sale (Bill)
-                if (txn.source === 'sales' && txn.type === 'credit') {
-                    // txn.totalAmount here is the Credit Component (Bill - Immediate Pay)
-                    customerBuckets[txn.customerId].creditIssued += total;
-                }
-                
-                // If it's a Payment against debt
-                if (txn.source === 'recovery') {
-                    customerBuckets[txn.customerId].payment += paid;
-                }
+                if (!customerBuckets[txn.customerId]) customerBuckets[txn.customerId] = { creditIssued: 0, payment: 0 };
+                if (txn.source === 'sales' && txn.type === 'credit') customerBuckets[txn.customerId].creditIssued += total;
+                if (txn.source === 'recovery') customerBuckets[txn.customerId].payment += paid;
             }
         });
 
-        // 5. Aggregate Net Credit Added & Debt Recovered
         let netCreditAdded = 0;
         let debtRecovered = 0;
 
         Object.values(customerBuckets).forEach(bucket => {
             const net = bucket.creditIssued - bucket.payment;
-            if (net > 0) {
-                netCreditAdded += net;
-            } else {
-                // If net is negative, it means they paid more than they took in credit today.
-                // The absolute value is the NET debt recovery for the day.
-                debtRecovered += Math.abs(net);
-            }
+            if (net > 0) netCreditAdded += net;
+            else debtRecovered += Math.abs(net);
         });
 
         return {
             totalCash, totalQr, totalCreditVolume, 
-            credit: netCreditAdded, // REPLACED logic
-            debtRecovered,          // NEW metric
+            credit: netCreditAdded,
+            debtRecovered,
             moneyInHand,
             totalSales,
             totalMarketCredit,
@@ -962,109 +862,105 @@ const AnalyticsTab: React.FC = () => {
     const topProducts = useMemo(() => {
         const productMap = new Map<string, number>();
         filteredTransactions.forEach(txn => {
-            // IMPORTANT: Ignore items from Khata Payments (global txns) to avoid double counting items sold.
-            // Items are counted from the 'debit' transaction (Bill) or Cash Sale.
             if (txn.isKhataPayment && !txn.meta?.isSplitPayment) return;
-
-            // Only count items if this transaction represents a sale event
             if (txn.source === 'sales') {
                 txn.items.forEach(item => {
                     const qty = parseFloat(String(item.quantity)) || 0;
-                    const name = item.name;
-                    if (name) {
-                        productMap.set(name, (productMap.get(name) || 0) + qty);
-                    }
+                    if (item.name) productMap.set(item.name, (productMap.get(item.name) || 0) + qty);
                 });
             }
         });
-        return Array.from(productMap.entries())
-            .map(([name, qty]) => ({ name, qty }))
-            .sort((a, b) => b.qty - a.qty);
+        return Array.from(productMap.entries()).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
     }, [filteredTransactions]);
 
     const chartData = useMemo((): MultiLinePoint[] => {
+        const sortedTxns = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        let runCash = 0;
+        let runQr = 0;
+        let runCredit = 0; // Cumulative net credit risk
+
+        const points: MultiLinePoint[] = [];
+        const startTime = new Date(dateRange.start);
+        startTime.setHours(0,0,0,0);
+        
+        points.push({
+            timestamp: startTime.getTime(),
+            label: isSingleDay ? startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : startTime.toLocaleDateString([], {month:'short', day:'numeric'}),
+            valCash: 0, valQr: 0, valCredit: 0, total: 0
+        });
+
         if (isSingleDay) {
-             // ... Hourly Logic ...
-             const hourlyMap = new Map<string, { cash: number, qr: number, credit: number }>();
-             filteredTransactions.forEach(txn => {
-                const d = new Date(txn.date);
-                const hourKey = d.getHours().toString();
-                if (!hourlyMap.has(hourKey)) hourlyMap.set(hourKey, { cash: 0, qr: 0, credit: 0 });
-                const entry = hourlyMap.get(hourKey)!;
+             sortedTxns.forEach(txn => {
                 const paid = Number(txn.paidAmount) || 0;
                 const total = Number(txn.totalAmount) || 0;
+                const time = new Date(txn.date).getTime();
                 
-                if (txn.type === 'cash') entry.cash += paid;
-                else if (txn.type === 'qr') entry.qr += paid;
-                else if (txn.type === 'credit') {
-                    // Credit Sale
-                    entry.credit += total; 
-                }
+                // Update Running Cumulative Values (Only for Credit)
+                if (txn.source === 'sales' && txn.type === 'credit') runCredit += total;
+                if (txn.source === 'recovery') runCredit -= paid;
+                
+                // Cash/QR = Transaction Pulse (Actual Amount)
+                const currentCash = (txn.type === 'cash') ? paid : 0;
+                const currentQr = (txn.type === 'qr') ? paid : 0;
+                
+                // Credit = Mountain (Cumulative)
+                const visualCredit = Math.max(0, runCredit);
+
+                points.push({
+                    timestamp: time,
+                    label: new Date(txn.date).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
+                    valCash: currentCash,
+                    valQr: currentQr,
+                    valCredit: visualCredit, 
+                    total: currentCash + currentQr + visualCredit
+                });
              });
              
-             const buckets: MultiLinePoint[] = [];
-             const startTime = new Date(dateRange.start);
-             startTime.setHours(5, 0, 0, 0); 
-             const endTime = new Date(dateRange.start);
-             if (isToday) {
-                 const now = new Date();
-                 if (now < startTime) endTime.setHours(5, 0, 0, 0); 
-                 else endTime.setTime(now.getTime());
-             } else {
-                 endTime.setHours(23, 59, 59, 999);
+             const now = new Date();
+             if (isToday && points[points.length-1].timestamp < now.getTime()) {
+                  points.push({
+                    timestamp: now.getTime(),
+                    label: now.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
+                    valCash: 0, valQr: 0,
+                    valCredit: Math.max(0, runCredit),
+                    total: Math.max(0, runCredit)
+                });
              }
-             let currentCursor = new Date(startTime);
-             let safety = 0;
-             while (currentCursor <= endTime && safety < 25) {
-                 const hourKey = currentCursor.getHours().toString();
-                 const data = hourlyMap.get(hourKey) || { cash: 0, qr: 0, credit: 0 };
-                 buckets.push({
-                     timestamp: currentCursor.getTime(),
-                     label: currentCursor.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
-                     valCash: data.cash,
-                     valQr: data.qr,
-                     valCredit: data.credit, 
-                     total: data.cash + data.qr + data.credit
-                 });
-                 currentCursor.setHours(currentCursor.getHours() + 1);
-                 safety++;
-             }
-             if (buckets.length === 0) {
-                  buckets.push({ timestamp: startTime.getTime(), label: startTime.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}), valCash: 0, valQr: 0, valCredit: 0, total: 0 });
-             }
-             return buckets;
+             return points;
         } else {
-            // ... Daily Logic ...
-            const days: MultiLinePoint[] = [];
-            const cursor = new Date(dateRange.start);
-            const end = new Date(dateRange.end);
-            cursor.setHours(0,0,0,0);
-            const normalizedEnd = new Date(end);
-            normalizedEnd.setHours(23,59,59,999);
-            let safety = 0;
-            while (cursor <= normalizedEnd && safety < 40) {
+            // Daily Granularity for Range
+            const end = new Date(dateRange.end); end.setHours(23,59,59,999);
+            let cursor = new Date(dateRange.start); cursor.setHours(0,0,0,0);
+            
+            while (cursor <= end) {
                  const dateKey = cursor.toDateString();
-                 // Filter for this specific day from already filteredTransactions to avoid redundant full scan
-                 const dayTxns = filteredTransactions.filter(t => new Date(t.date).toDateString() === dateKey);
+                 const dayTxns = sortedTxns.filter(t => new Date(t.date).toDateString() === dateKey);
                  
-                 let valCash = 0, valQr = 0, valCredit = 0;
+                 let dayCash = 0;
+                 let dayQr = 0;
+                 
                  dayTxns.forEach(txn => {
                      const paid = Number(txn.paidAmount) || 0;
                      const total = Number(txn.totalAmount) || 0;
+                     if (txn.type === 'cash') dayCash += paid;
+                     else if (txn.type === 'qr') dayQr += paid;
                      
-                     if (txn.type === 'cash') valCash += paid;
-                     else if (txn.type === 'qr') valQr += paid;
-                     else if (txn.type === 'credit') valCredit += total;
+                     if (txn.source === 'sales' && txn.type === 'credit') runCredit += total;
+                     if (txn.source === 'recovery') runCredit -= paid;
                  });
-                 days.push({
+
+                 points.push({
                      timestamp: cursor.getTime(),
                      label: cursor.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', {month:'short', day:'numeric'}),
-                     valCash, valQr, valCredit, total: valCash + valQr + valCredit,
+                     valCash: dayCash,
+                     valQr: dayQr,
+                     valCredit: Math.max(0, runCredit),
+                     total: dayCash + dayQr + Math.max(0, runCredit),
                  });
                  cursor.setDate(cursor.getDate() + 1);
-                 safety++;
             }
-            return days;
+            return points;
         }
     }, [filteredTransactions, dateRange, isSingleDay, language, isToday]);
 
@@ -1072,46 +968,22 @@ const AnalyticsTab: React.FC = () => {
         if (!txn.customerId) return 0;
         const customer = khataCustomers.find(c => c.id === txn.customerId);
         if (!customer) return 0;
-    
         const currentTxnTime = new Date(txn.date).getTime();
-        
-        // Calculate ledger balance up to this transaction's timestamp
-        // This simulates a "Running Balance" or Passbook view
         let bal = customer.transactions.reduce((acc, t) => {
             const tTime = new Date(t.date).getTime();
-            // Include all transactions that happened before or at the exact same time
-            if (tTime <= currentTxnTime) {
-                return t.type === 'debit' ? acc + t.amount : acc - t.amount;
-            }
+            if (tTime <= currentTxnTime) return t.type === 'debit' ? acc + t.amount : acc - t.amount;
             return acc;
         }, 0);
-    
-        // Adjust for Global Payment transactions
-        // The ledger records the payment 1s later than the Global Transaction to maintain logical order (Bill then Payment).
-        // So the 'bal' calculated above (<= txn.date) does NOT include the payment credit yet.
-        // We manually subtract it to show the user the balance *after* this payment was made.
         
         const isCreditSale = txn.type === 'credit' && txn.source === 'sales';
-        
         if (!isCreditSale) {
-             // It is a payment (Cash/QR) linked to this customer
              const paidAmt = txn.paidAmount || txn.amount;
              bal -= paidAmt;
-
-             // FIX: Handle Split Payment Part B (Recovery)
-             // If this is the recovery part, we must also subtract the immediate payment (Part A)
-             // from the balance, because both A and B happen at the same timestamp (Debit's timestamp)
-             // and the Debit's full amount was added in the reduce step above.
              if (txn.id.endsWith('-B')) {
-                 const debitTxn = customer.transactions.find(t => 
-                    t.type === 'debit' && new Date(t.date).getTime() === currentTxnTime
-                 );
-                 if (debitTxn?.immediatePayment) {
-                     bal -= debitTxn.immediatePayment;
-                 }
+                 const debitTxn = customer.transactions.find(t => t.type === 'debit' && new Date(t.date).getTime() === currentTxnTime);
+                 if (debitTxn?.immediatePayment) bal -= debitTxn.immediatePayment;
              }
         }
-        
         return bal;
     };
 
@@ -1211,7 +1083,7 @@ const AnalyticsTab: React.FC = () => {
                                 data={[
                                     { type: 'cash', amount: financialSummary.totalCash }, 
                                     { type: 'qr', amount: financialSummary.totalQr },
-                                    { type: 'credit', amount: financialSummary.totalCreditVolume }
+                                    { type: 'credit', amount: Math.max(0, financialSummary.credit) }
                                 ]} 
                                 localT={localT}
                             />
@@ -1226,7 +1098,7 @@ const AnalyticsTab: React.FC = () => {
                                 </div>
                                 <div className="flex justify-between items-center text-sm">
                                     <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span><span className="text-gray-600">{localT.credit}</span></div>
-                                    <span className="font-bold text-gray-800">Rs.{financialSummary.totalCreditVolume.toFixed(0)}</span>
+                                    <span className="font-bold text-gray-800">Rs.{Math.max(0, financialSummary.credit).toFixed(0)}</span>
                                 </div>
                             </div>
                         </div>
@@ -1245,14 +1117,11 @@ const AnalyticsTab: React.FC = () => {
                                     const total = Number(txn.totalAmount) || 0;
                                     const paid = Number(txn.paidAmount) || 0;
                                     const isCreditSale = txn.type === 'credit' && txn.source === 'sales';
-                                    const isPayment = txn.isKhataPayment || (txn.type !== 'credit' && !txn.isKhataPayment); // Cash Sale or Payment
                                     
-                                    // Identify Advance or Debt Payment
                                     const isDebtPayment = txn.source === 'recovery';
                                     const remainingDue = txn.meta?.remainingDue || 0;
                                     const isAdvance = remainingDue < 0;
 
-                                    // Special Card: Advance Payment
                                     if (isAdvance && isDebtPayment) {
                                          const advanceAmount = Math.abs(remainingDue);
                                          return (
@@ -1288,7 +1157,6 @@ const AnalyticsTab: React.FC = () => {
                                          );
                                     }
 
-                                    // Special Card: Pure Debt Repayment
                                     if (isDebtPayment) {
                                         const historicalBalance = calculateHistoricalBalance(txn);
                                         return (
@@ -1309,7 +1177,6 @@ const AnalyticsTab: React.FC = () => {
                                         );
                                     }
                                     
-                                    // Standard Cards
                                     const isQr = txn.type === 'qr';
                                     let theme = { bg: 'bg-emerald-50', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', amountColor: 'text-emerald-700', icon: Wallet };
 
@@ -1319,10 +1186,6 @@ const AnalyticsTab: React.FC = () => {
                                     const Icon = theme.icon;
                                     const historicalBalance = calculateHistoricalBalance(txn);
                                     const currentBalanceStatus = historicalBalance < 0 ? 'advance' : (historicalBalance > 0 ? 'due' : 'settled');
-                                    
-                                    // Display Logic
-                                    // If credit sale (split or full), show the calculated total amount (which is the remaining credit)
-                                    // If cash sale/payment, show the paid amount
                                     const displayAmount = isCreditSale ? total : paid;
 
                                     return (
