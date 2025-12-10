@@ -1,6 +1,10 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, TrendingUp, ArrowDown, PieChart, Award, Clock, ZoomIn, Wallet, Loader2, X, AlertCircle, Info, Eye, EyeOff, ArrowUp, ArrowUpRight, CheckCheck, Trash2, QrCode, BookOpen, Trophy, Scale, Sparkles, ArrowDownLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, TrendingUp, PieChart, Clock, AlertCircle, X, Wallet, QrCode, BookOpen, Trash2, Sparkles, ArrowDownLeft, CheckCheck, ArrowUp, ArrowDown } from 'lucide-react';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
+  ResponsiveContainer, Line
+} from 'recharts';
 import { translations } from '../translations';
 import type { UnifiedTransaction } from '../types';
 import ConfirmationModal from './ConfirmationModal';
@@ -9,40 +13,36 @@ import { formatDateTime } from '../utils';
 
 // --- Constants & Configuration ---
 const COLORS = {
-    cash: '#22c55e',  // Green-500
-    qr: '#0ea5e9',    // Sky-500
-    credit: '#ef4444' // Red-500
+    cash: '#10b981',  // Emerald-500
+    qr: '#3b82f6',    // Blue-500
+    credit: '#ef4444', // Red-500
+    total: '#3b82f6'  // Blue-500
 };
 
 const COLORS_HOVER = {
-    cash: '#16a34a',  // Green-600
-    qr: '#0284c7',    // Sky-600
-    credit: '#dc2626' // Red-600
+    cash: '#059669',
+    qr: '#2563eb',
+    credit: '#dc2626'
 };
 
 const NAVIGATION_LIMIT_DAYS = 30;
 const MAX_CUSTOM_RANGE_DAYS = 30;
+const DAILY_GOAL = 15000;
 
 // --- Local Translations ---
 const LOCAL_TEXT = {
    ne: {
        insight_title: "दैनिक सारांश",
-       actual_money_in: "हातमा आएको पैसा (CASH + QR)",
-       credit_sales: "आजको खुद उधारो (NET CREDIT)",
+       actual_money_in: "हातमा आएको पैसा",
+       credit_sales: "आजको खुद उधारो",
        total_sales: "कुल बिक्री",
        money_in_hand: "नगद + अनलाइन",
-       top_seller: "धेरै बिकेको",
        end_shift: "दिन समाप्त",
-       shift_ended: "सिफ्ट समाप्त",
-       zoom_hint: "जुम गर्न स्लाइडर तान्नुहोस्",
        payment_distribution: "पैसाको स्रोत",
        recent_txn: "हालको कारोबार",
        cash: "नगद",
        qr: "QR",
        credit: "उधारो",
-       sales_vs_prev: "हिजोको तुलनामा",
-       up: "बढी",
-       down: "कम",
        last_7_days: "पछिल्लो ७ दिन",
        last_14_days: "पछिल्लो १४ दिन",
        last_28_days: "पछिल्लो २८ दिन",
@@ -50,7 +50,6 @@ const LOCAL_TEXT = {
        today: "आज",
        yesterday: "हिजो",
        no_data_day: "आजको लागि कुनै बिक्री छैन",
-       no_data_range: "यो अवधिमा कुनै बिक्री छैन",
        loading: "डाटा लोड हुँदैछ...",
        apply: "लागु गर्नुहोस्",
        cancel: "रद्द गर्नुहोस्",
@@ -59,41 +58,33 @@ const LOCAL_TEXT = {
        invalid_range: "अमान्य मिति दायरा",
        range_limit_error: "३० दिन भन्दा बढीको दायरा छनोट गर्न मिल्दैन",
        retry: "पुन: प्रयास गर्नुहोस्",
-       view_table: "डाटा तालिका हेर्नुहोस्",
-       hide_table: "तालिका लुकाउनुहोस्",
-       time: "समय",
-       date: "मिति",
        total: "जम्मा",
-       top_products_title: "धेरै बिक्री हुने सामानहरू",
-       rank: "क्रम",
-       product_name: "सामानको नाम",
-       quantity_sold: "बिक्री मात्रा",
-       from_sales: "बिक्रीबाट",
-       from_recovery: "उधारो असुली",
-       source_breakdown: "स्रोत विवरण",
+       revenue_progress: "कुल आम्दानी (Revenue)",
+       payment_split: "भुक्तानी विवरण (Split)",
+       goal_progress: "दैनिक लक्ष्य",
+       goal_of: "दैनिक लक्ष्य:",
+       on_track: "प्रगति",
+       money_in_desc: "(CASH + QR)",
+       credit_desc: "(NET CREDIT ADDED)",
+       total_cash_in: "कुल नगद प्राप्त",
+       debt_repayment_received: "ऋण भुक्तानी प्राप्त",
        balance: "बाँकी रकम",
-       debt_recovered: "उधारो असुली",
-       cumulative_trend: "संचयी प्रवृत्ति (Cumulative Trend)",
-       sales_pulse: "बिक्री पल्स (Sales Pulse)"
+       credit_alert: "उधारो अलर्ट",
+       credit_alert_desc: "तपाईंले आज रू {credit} को उधारो दिनुभयो तर असुली रू ० छ। पुराना बाँकी उठाउन जोड दिनुहोस्।",
+       view_outstanding: "बाँकी हेर्नुहोस्"
    },
    en: {
        insight_title: "Daily Insight",
-       actual_money_in: "ACTUAL MONEY IN (CASH + QR)",
+       actual_money_in: "ACTUAL MONEY IN",
        credit_sales: "NET CREDIT ADDED",
        total_sales: "Total Sales",
        money_in_hand: "Cash + Online",
-       top_seller: "Top Selling Product",
        end_shift: "End Shift",
-       shift_ended: "Shift Ended",
-       zoom_hint: "Drag slider to zoom",
        payment_distribution: "Payment Distribution",
        recent_txn: "Recent Transactions",
        cash: "Cash",
        qr: "Online/QR",
        credit: "Credit",
-       sales_vs_prev: "vs Yesterday",
-       up: "Up",
-       down: "Down",
        last_7_days: "Last 7 Days",
        last_14_days: "Last 14 Days",
        last_28_days: "Last 28 Days",
@@ -101,7 +92,6 @@ const LOCAL_TEXT = {
        today: "Today",
        yesterday: "Yesterday",
        no_data_day: "No sales recorded for this day",
-       no_data_range: "No sales recorded in this period",
        loading: "Loading data...",
        apply: "Apply",
        cancel: "Cancel",
@@ -110,111 +100,60 @@ const LOCAL_TEXT = {
        invalid_range: "Invalid date range",
        range_limit_error: "Range cannot exceed 30 days",
        retry: "Retry",
-       view_table: "View Data Table",
-       hide_table: "Hide Data Table",
-       time: "Time",
-       date: "Date",
        total: "Total",
-       top_products_title: "Top Selling Products",
-       rank: "Rank",
-       product_name: "Product Name",
-       quantity_sold: "Qty Sold",
-       from_sales: "From Sales",
-       from_recovery: "From Debt Recovery",
-       source_breakdown: "Source Breakdown",
+       revenue_progress: "Revenue Progress",
+       payment_split: "Payment Split",
+       goal_progress: "Daily Goal",
+       goal_of: "Goal:",
+       on_track: "of daily goal",
+       money_in_desc: "(CASH + QR)",
+       credit_desc: "(NET CREDIT ADDED)",
+       total_cash_in: "Total Cash In",
+       debt_repayment_received: "Debt Repayment Received",
        balance: "Remaining Balance",
-       debt_recovered: "Debt Recovered",
-       cumulative_trend: "Cumulative Trend",
-       sales_pulse: "Sales Pulse"
+       credit_alert: "Credit Alert",
+       credit_alert_desc: "You gave रू {credit} credit today but collected रू 0. Consider collecting old debts.",
+       view_outstanding: "View Outstanding Credits →"
    }
-};
-
-// --- Types ---
-type MultiLinePoint = {
-    timestamp: number;
-    label: string;
-    valCash: number;
-    valQr: number;
-    valCredit: number;
-    total: number;
-};
-
-type TooltipData = {
-    visible: boolean;
-    x: number;
-    y: number;
-    point: MultiLinePoint;
-};
-
-type TopProduct = {
-    name: string;
-    qty: number;
 };
 
 // --- Helper Components ---
 const SkeletonLoader = () => (
     <div className="space-y-6 animate-pulse" aria-hidden="true">
         <div className="h-10 bg-gray-200 rounded-lg w-full max-w-[200px]"></div>
+        <div className="h-32 bg-gray-200 rounded-2xl w-full"></div>
         <div className="h-48 bg-gray-200 rounded-2xl w-full"></div>
         <div className="h-64 bg-gray-200 rounded-2xl w-full"></div>
-        <div className="h-40 bg-gray-200 rounded-2xl w-full"></div>
     </div>
 );
 
-const TopProductsModal: React.FC<{
-    isOpen: boolean;
-    onClose: () => void;
-    products: TopProduct[];
-    localT: typeof LOCAL_TEXT.en;
-}> = ({ isOpen, onClose, products, localT }) => {
-    if (!isOpen) return null;
+const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+        // Fix: Convert the raw timestamp (label) into a readable time string
+        const dateLabel = new Date(label);
+        const formattedLabel = dateLabel.getHours() === 0 && dateLabel.getMinutes() === 0 
+            ? dateLabel.toLocaleDateString([], { month: 'short', day: 'numeric' }) // Show Date if midnight
+            : dateLabel.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }); // Show 24h Time (e.g., 16:00)
 
-    return (
-        <div className="fixed inset-0 bg-black/60 z-[60] flex justify-center items-center p-4 animate-in fade-in duration-200">
-            <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl flex flex-col max-h-[80vh]">
-                <div className="flex justify-between items-center mb-4 pb-2 border-b">
-                    <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                        <Trophy className="w-5 h-5 text-yellow-500" />
-                        {localT.top_products_title}
-                    </h3>
-                    <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
-                </div>
-                
-                <div className="overflow-y-auto flex-1">
-                    <table className="w-full text-sm">
-                        <thead className="bg-gray-50 text-gray-500">
-                            <tr>
-                                <th className="px-3 py-2 text-left w-12">#</th>
-                                <th className="px-3 py-2 text-left">{localT.product_name}</th>
-                                <th className="px-3 py-2 text-right">{localT.quantity_sold}</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {products.map((p, idx) => (
-                                <tr key={idx} className={idx < 3 ? 'bg-yellow-50/30' : ''}>
-                                    <td className="px-3 py-3 font-bold text-gray-400">
-                                        {idx + 1}
-                                        {idx === 0 && <span className="ml-1">🥇</span>}
-                                        {idx === 1 && <span className="ml-1">🥈</span>}
-                                        {idx === 2 && <span className="ml-1">🥉</span>}
-                                    </td>
-                                    <td className="px-3 py-3 font-medium text-gray-800">{p.name}</td>
-                                    <td className="px-3 py-3 text-right font-bold text-purple-600">{p.qty}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 z-50">
+          <p className="font-semibold text-sm mb-2 text-gray-700">{formattedLabel}</p>
+          {payload.map((entry: any, index: number) => (
+            <p key={index} className="text-xs font-medium flex items-center gap-2" style={{ color: entry.color }}>
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></span>
+              {entry.name}: रू {Number(entry.value).toLocaleString()}
+            </p>
+          ))}
         </div>
-    );
+      );
+    }
+    return null;
 };
 
 const CustomRangeModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     onApply: (start: Date, end: Date) => void;
-    language: 'ne' | 'en';
     localT: typeof LOCAL_TEXT.en;
 }> = ({ isOpen, onClose, onApply, localT }) => {
     const [start, setStart] = useState('');
@@ -272,52 +211,6 @@ const CustomRangeModal: React.FC<{
     );
 };
 
-// 1. Brush Slider (Time Scaled)
-const BrushSlider: React.FC<{
-    range: [number, number];
-    onChange: (newRange: [number, number]) => void;
-    data: MultiLinePoint[];
-}> = ({ range, onChange, data }) => {
-    if (!data || data.length === 0) return null;
-    
-    // For visual shape
-    const maxTotal = Math.max(...data.map(d => Math.max(d.valCash, d.valQr, d.valCredit))) || 1;
-    const safeMax = isFinite(maxTotal) && maxTotal > 0 ? maxTotal : 1;
-
-    const minTime = data[0].timestamp;
-    const maxTime = data[data.length - 1].timestamp;
-    const timeRange = maxTime - minTime || 1;
-
-    const points = data.map((d) => {
-        const x = ((d.timestamp - minTime) / timeRange) * 100;
-        const y = 100 - ((d.total || 0) / safeMax) * 100;
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>, index: 0 | 1) => {
-        const val = Number(e.target.value) || 0;
-        const newRange = [...range] as [number, number];
-        newRange[index] = val;
-        
-        if (index === 0 && val > newRange[1] - 5) newRange[0] = newRange[1] - 5;
-        if (index === 1 && val < newRange[0] + 5) newRange[1] = newRange[0] + 5;
-        onChange(newRange);
-    };
-
-    return (
-        <div className="relative h-10 w-full mt-4 bg-gray-50 rounded-lg border overflow-hidden select-none touch-none">
-            <div className="absolute inset-0 p-1 opacity-30">
-                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-                    <polyline points={points} fill="none" stroke="#8b5cf6" strokeWidth="2" />
-                    <polygon points={`0,100 ${points} 100,100`} fill="#8b5cf6" opacity="0.2" />
-                 </svg>
-            </div>
-            <div className="absolute top-0 bottom-0 bg-purple-500/10 border-x border-purple-500/30" style={{ left: `${range[0]}%`, width: `${range[1] - range[0]}%` }} />
-            <input type="range" min="0" max="100" value={range[0]} onChange={(e) => handleChange(e, 0)} className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20" aria-label="Zoom start" />
-            <input type="range" min="0" max="100" value={range[1]} onChange={(e) => handleChange(e, 1)} className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20" aria-label="Zoom end" />
-        </div>
-    );
-};
 
 // 2. Interactive Payment Distribution Donut Chart
 const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amount: number }[], localT: typeof LOCAL_TEXT.en }> = ({ data, localT }) => {
@@ -339,7 +232,7 @@ const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amou
             {hoveredSlice && (
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 bg-gray-900 text-white text-xs rounded px-2 py-1 pointer-events-none whitespace-nowrap shadow-lg">
                     <p className="font-bold">{MAP[hoveredSlice.type as keyof typeof MAP].label}</p>
-                    <p>Rs.{hoveredSlice.amount.toLocaleString()}</p>
+                    <p>रू {hoveredSlice.amount.toLocaleString()}</p>
                     <p className="text-gray-400">{hoveredSlice.percentage.toFixed(1)}%</p>
                 </div>
             )}
@@ -367,259 +260,6 @@ const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amou
     );
 };
 
-// 3. Main Multi-Line Chart (HYBRID HEARTBEAT / MOUNTAIN)
-const MultiLineChart: React.FC<{
-    data: MultiLinePoint[];
-    viewWindow: [number, number];
-    noDataMessage: string;
-    mode: 'day' | 'range';
-    localT: typeof LOCAL_TEXT.en;
-}> = ({ data, viewWindow, noDataMessage, mode, localT }) => {
-    const svgRef = useRef<SVGSVGElement>(null);
-    const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-    const [focusedSeries, setFocusedSeries] = useState<'all' | 'cash' | 'qr' | 'credit'>('all');
-    const [showTable, setShowTable] = useState(false);
-
-    const width = 320;
-    const height = 200;
-    const margin = { top: 20, right: 10, bottom: 30, left: 40 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
-
-    const safeData = useMemo(() => {
-        if (!data || data.length === 0) return [{timestamp: Date.now(), label: '', valCash:0, valQr:0, valCredit:0, total:0}];
-        return data;
-    }, [data]);
-    
-    const fullMinTime = safeData[0].timestamp;
-    const fullMaxTime = safeData[safeData.length - 1].timestamp;
-    const fullTimeRange = fullMaxTime - fullMinTime || 1;
-
-    const visibleMinTime = fullMinTime + (fullTimeRange * (viewWindow[0] / 100));
-    const visibleMaxTime = fullMinTime + (fullTimeRange * (viewWindow[1] / 100));
-    const visibleTimeRange = visibleMaxTime - visibleMinTime || 1;
-
-    const visibleData = safeData.filter(d => d.timestamp >= visibleMinTime && d.timestamp <= visibleMaxTime);
-    
-    const isEmpty = visibleData.every(d => d.total === 0 && d.valCash === 0 && d.valQr === 0 && d.valCredit === 0);
-    
-    const maxVal = Math.max(...visibleData.map(d => Math.max(d.valCash, d.valQr, d.valCredit))) || 0;
-    const yMax = (isFinite(maxVal) && maxVal > 0) ? maxVal * 1.1 : 100;
-
-    const xScale = (timestamp: number) => ((timestamp - visibleMinTime) / visibleTimeRange) * innerWidth;
-    const yScale = (val: number) => innerHeight - ((val || 0) / yMax) * innerHeight;
-
-    const createPath = (key: 'valCash' | 'valQr' | 'valCredit') => {
-        const points = visibleData;
-        
-        if (points.length === 0) return '';
-
-        // 2. PATH CONSTRUCTION LOGIC
-        return points.map((d, i) => {
-            const x = xScale(d.timestamp);
-            const y = yScale(d[key]);
-            const safeX = isFinite(x) ? x.toFixed(1) : '0';
-            const safeY = isFinite(y) ? y.toFixed(1) : innerHeight.toString();
-
-            if (i === 0) return `M ${safeX} ${safeY}`;
-
-            // STEP INTERPOLATION FOR CREDIT (Red Line)
-            // It holds the previous value horizontally, then jumps vertically
-            if (key === 'valCredit') {
-                const prev = points[i-1];
-                const prevY = yScale(prev[key]);
-                const safePrevY = isFinite(prevY) ? prevY.toFixed(1) : innerHeight.toString();
-                // Draw horizontal line to new X, but at OLD Y. Then vertical to NEW Y.
-                // This creates the "Step-After" look.
-                return `L ${safeX} ${safePrevY} L ${safeX} ${safeY}`;
-            }
-
-            // DIRECT LINE FOR CASH/QR (Pulse)
-            return `L ${safeX} ${safeY}`;
-        }).join(' ');
-    };
-    
-    const createAreaPath = (key: 'valCash' | 'valQr' | 'valCredit') => {
-        const linePath = createPath(key);
-        if (!linePath) return '';
-        
-        const points = visibleData; 
-        // For credit area, we need to match the step logic down to the axis
-        const lastPoint = points[points.length - 1];
-        const lastX = isFinite(xScale(lastPoint.timestamp)) ? xScale(lastPoint.timestamp).toFixed(1) : innerWidth;
-        const firstX = isFinite(xScale(points[0].timestamp)) ? xScale(points[0].timestamp).toFixed(1) : '0';
-        
-        return `${linePath} L ${lastX} ${innerHeight} L ${firstX} ${innerHeight} Z`;
-    }
-
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (!svgRef.current || visibleData.length === 0) return;
-        const rect = svgRef.current.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left - margin.left;
-        const clickedTime = (mouseX / innerWidth) * visibleTimeRange + visibleMinTime;
-        const closest = visibleData.reduce((prev, curr) => (Math.abs(curr.timestamp - clickedTime) < Math.abs(prev.timestamp - clickedTime) ? curr : prev));
-
-        if (closest) {
-             setTooltip({
-                 visible: true,
-                 x: xScale(closest.timestamp) + margin.left,
-                 y: margin.top,
-                 point: closest
-             });
-        } else {
-            setTooltip(null);
-        }
-    };
-
-    const toggleFocus = (series: 'cash' | 'qr' | 'credit') => {
-        setFocusedSeries(focusedSeries === series ? 'all' : series);
-    };
-
-    const getOpacity = (series: 'cash' | 'qr' | 'credit') => {
-        if (focusedSeries === 'all') return 1;
-        return focusedSeries === series ? 1 : 0.1;
-    };
-
-    const xTicks = useMemo(() => {
-        const count = 5;
-        const step = visibleTimeRange / (count - 1);
-        return Array.from({length: count}, (_, i) => visibleMinTime + step * i);
-    }, [visibleMinTime, visibleTimeRange]);
-
-    const formatTick = (timestamp: number) => {
-        const date = new Date(timestamp);
-        if (mode === 'day') return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        return date.toLocaleDateString([], {month:'short', day:'numeric'});
-    };
-
-    return (
-        <div className="space-y-4">
-            <div className="flex justify-between items-center px-1">
-                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mode === 'day' ? localT.sales_pulse : localT.cumulative_trend}</h4>
-                 <div className="flex flex-wrap justify-end items-center gap-2 text-xs">
-                    <button onClick={() => toggleFocus('cash')} className={`flex items-center gap-1.5 px-2 py-1 rounded-full transition-all border ${focusedSeries === 'cash' ? 'bg-green-50 border-green-200 ring-1 ring-green-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('cash') < 1 ? 0.4 : 1}}>
-                        <span className="w-2 h-2 rounded-full shadow-sm" style={{backgroundColor: COLORS.cash}}></span>
-                        <span className="font-medium text-gray-700">{localT.cash}</span>
-                    </button>
-                    <button onClick={() => toggleFocus('qr')} className={`flex items-center gap-1.5 px-2 py-1 rounded-full transition-all border ${focusedSeries === 'qr' ? 'bg-sky-50 border-sky-200 ring-1 ring-sky-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('qr') < 1 ? 0.4 : 1}}>
-                        <span className="w-2 h-2 rounded-full shadow-sm" style={{backgroundColor: COLORS.qr}}></span>
-                        <span className="font-medium text-gray-700">{localT.qr}</span>
-                    </button>
-                    <button onClick={() => toggleFocus('credit')} className={`flex items-center gap-1.5 px-2 py-1 rounded-full transition-all border ${focusedSeries === 'credit' ? 'bg-red-50 border-red-200 ring-1 ring-red-300' : 'border-transparent hover:bg-gray-50'}`} style={{opacity: getOpacity('credit') < 1 ? 0.4 : 1}}>
-                        <span className="w-2 h-2 rounded-full shadow-sm" style={{backgroundColor: COLORS.credit}}></span>
-                        <span className="font-medium text-gray-700">{localT.credit}</span>
-                    </button>
-                </div>
-            </div>
-
-            <div className="relative bg-white">
-                <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} className="w-full h-auto touch-none select-none cursor-crosshair" onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)} aria-label="Sales Trend Chart" role="img">
-                     <defs>
-                        <linearGradient id="gradCredit" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={COLORS.credit} stopOpacity={0.4} />
-                            <stop offset="100%" stopColor={COLORS.credit} stopOpacity={0} />
-                        </linearGradient>
-                    </defs>
-                    <g transform={`translate(${margin.left},${margin.top})`}>
-                        <line x1={0} x2={innerWidth} y1={innerHeight} y2={innerHeight} stroke="#e5e7eb" />
-                        <line x1={0} x2={0} y1={0} y2={innerHeight} stroke="#e5e7eb" />
-                        
-                        {[0, 0.5, 1].map(t => {
-                            const val = yMax * t;
-                            const y = innerHeight - (innerHeight * t);
-                            return <text key={t} x={-10} y={y} dy="0.32em" textAnchor="end" fontSize="10" fill="#9ca3af">{val >= 1000 ? `${(val/1000).toFixed(1)}k` : val.toFixed(0)}</text>
-                        })}
-
-                        {xTicks.map((tick, i) => {
-                            const x = xScale(tick);
-                            let anchor: "start" | "middle" | "end" = 'middle';
-                            if (i === 0) anchor = 'start';
-                            if (i === xTicks.length - 1) anchor = 'end';
-                            return <text key={i} x={isFinite(x) ? x : 0} y={innerHeight + 20} textAnchor={anchor} fontSize="10" fill="#9ca3af">{formatTick(tick)}</text>;
-                        })}
-
-                        {/* RED SERIES (Mountain/Risk) - Area Filled */}
-                        {/* Uses Step Interpolation Logic */}
-                        <path d={createAreaPath('valCredit')} fill="url(#gradCredit)" stroke="none" opacity={getOpacity('credit')} style={{transition: 'opacity 0.3s'}} />
-                        <path d={createPath('valCredit')} fill="none" stroke={COLORS.credit} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={getOpacity('credit')} style={{transition: 'opacity 0.3s'}}/>
-
-                        {/* GREEN/BLUE SERIES (Pulse/Heartbeat) - Lines Only, No Area */}
-                        {/* Important: These use the filtered path logic to skip 0s */}
-                        <path d={createPath('valQr')} fill="none" stroke={COLORS.qr} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={getOpacity('qr')} style={{transition: 'opacity 0.3s'}}/>
-                        <path d={createPath('valCash')} fill="none" stroke={COLORS.cash} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity={getOpacity('cash')} style={{transition: 'opacity 0.3s'}}/>
-                        
-                        {/* Data Points (Circles) to make single sales visible */}
-                        {mode === 'day' && visibleData.map((d, i) => {
-                             if (d.valCash > 0 && (focusedSeries === 'all' || focusedSeries === 'cash')) 
-                                return <circle key={`c-${i}`} cx={xScale(d.timestamp)} cy={yScale(d.valCash)} r="2" fill="white" stroke={COLORS.cash} strokeWidth="2" opacity={getOpacity('cash')} />;
-                             return null;
-                        })}
-                        {mode === 'day' && visibleData.map((d, i) => {
-                             if (d.valQr > 0 && (focusedSeries === 'all' || focusedSeries === 'qr')) 
-                                return <circle key={`q-${i}`} cx={xScale(d.timestamp)} cy={yScale(d.valQr)} r="2" fill="white" stroke={COLORS.qr} strokeWidth="2" opacity={getOpacity('qr')} />;
-                             return null;
-                        })}
-
-                         {tooltip && <line x1={tooltip.x - margin.left} x2={tooltip.x - margin.left} y1={0} y2={innerHeight} stroke="#cbd5e1" strokeDasharray="4 2" />}
-                         {tooltip && <circle cx={tooltip.x - margin.left} cy={yScale(tooltip.point.valCash)} r="4" fill="white" stroke={COLORS.cash} strokeWidth="2" />}
-                         {tooltip && <circle cx={tooltip.x - margin.left} cy={yScale(tooltip.point.valQr)} r="4" fill="white" stroke={COLORS.qr} strokeWidth="2" />}
-                         {tooltip && <circle cx={tooltip.x - margin.left} cy={yScale(tooltip.point.valCredit)} r="4" fill="white" stroke={COLORS.credit} strokeWidth="2" />}
-                    </g>
-                </svg>
-                
-                {isEmpty && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/40 backdrop-blur-[1px] pointer-events-none z-10">
-                        <div className="bg-white/90 px-4 py-2 rounded-full shadow-md border border-gray-100 flex items-center gap-2">
-                             <TrendingUp className="w-4 h-4 text-gray-400" />
-                             <span className="text-xs font-bold text-gray-500">{noDataMessage}</span>
-                        </div>
-                    </div>
-                )}
-
-                {tooltip && (
-                    <div className="absolute pointer-events-none bg-white text-gray-800 text-xs rounded-lg p-3 shadow-xl z-50 w-48 space-y-1.5 border border-gray-200 transition-transform duration-75" style={{ top: 0, left: tooltip.x, transform: tooltip.x > (width/2) ? 'translate(-105%, 0)' : 'translate(5%, 0)' }}>
-                        <div className="font-bold border-b border-gray-100 pb-1 mb-1 flex items-center gap-1 text-gray-500"><Clock className="w-3 h-3"/> {tooltip.point.label}</div>
-                        {(focusedSeries === 'all' || focusedSeries === 'cash') && <div className="flex justify-between items-center"><span className="flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full bg-green-500"></span> {localT.cash}</span><span className="font-mono font-bold">Rs.{tooltip.point.valCash.toFixed(0)}</span></div>}
-                        {(focusedSeries === 'all' || focusedSeries === 'qr') && <div className="flex justify-between items-center"><span className="flex items-center gap-1 text-sky-600"><span className="w-2 h-2 rounded-full bg-sky-500"></span> {localT.qr}</span><span className="font-mono font-bold">Rs.{tooltip.point.valQr.toFixed(0)}</span></div>}
-                        {(focusedSeries === 'all' || focusedSeries === 'credit') && <div className="flex justify-between items-center"><span className="flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500"></span> {localT.credit}</span><span className="font-mono font-bold">Rs.{tooltip.point.valCredit.toFixed(0)}</span></div>}
-                    </div>
-                )}
-            </div>
-            
-            <div className="flex justify-center">
-                 <button onClick={() => setShowTable(!showTable)} className="text-xs text-purple-600 font-semibold flex items-center gap-2 hover:bg-purple-50 px-3 py-1.5 rounded-md transition-colors">
-                    {showTable ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                    {showTable ? localT.hide_table : localT.view_table}
-                 </button>
-            </div>
-
-            {showTable && (
-                <div className="overflow-x-auto border rounded-lg shadow-sm max-h-60">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-3 py-2 text-left text-xs font-bold text-gray-500 uppercase">{mode === 'day' ? localT.time : localT.date}</th>
-                                <th className="px-3 py-2 text-right text-xs font-bold text-green-600 uppercase">{localT.cash}</th>
-                                <th className="px-3 py-2 text-right text-xs font-bold text-sky-600 uppercase">{localT.qr}</th>
-                                <th className="px-3 py-2 text-right text-xs font-bold text-red-600 uppercase">{localT.credit} (Risk)</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {safeData.map((row, idx) => (
-                                <tr key={idx} className="hover:bg-gray-50">
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 font-medium">{row.label}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valCash.toFixed(0)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valQr.toFixed(0)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-xs text-right text-gray-600">{row.valCredit.toFixed(0)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </div>
-    );
-};
 
 const AnalyticsTab: React.FC = () => {
     const { language, deleteTransaction, deleteKhataTransaction, transactions, khataCustomers, unifiedRecentTransactions } = useKirana();
@@ -629,12 +269,10 @@ const AnalyticsTab: React.FC = () => {
     const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>({ start: new Date(), end: new Date() });
     const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);
     const [isCustomRangeOpen, setIsCustomRangeOpen] = useState(false);
-    const [viewWindow, setViewWindow] = useState<[number, number]>([0, 100]);
     const [confirmDelete, setConfirmDelete] = useState<UnifiedTransaction | null>(null);
-    const [isShiftEnded, setIsShiftEnded] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState(false);
-    const [showTopProducts, setShowTopProducts] = useState(false);
+    const [chartView, setChartView] = useState<'cumulative' | 'split'>('cumulative');
     
     const dateFilterRef = useRef<HTMLDivElement>(null);
 
@@ -676,7 +314,6 @@ const AnalyticsTab: React.FC = () => {
         newEnd.setHours(23, 59, 59, 999);
 
         setDateRange({ start: newStart, end: newEnd });
-        setViewWindow([0, 100]);
     };
 
     const setDatePreset = (preset: 'today' | '7d' | '14d' | '28d' | 'custom') => {
@@ -698,7 +335,6 @@ const AnalyticsTab: React.FC = () => {
         
         setDateRange({ start, end });
         setIsDateFilterOpen(false);
-        setViewWindow([0, 100]);
     };
 
     const handleCustomRangeApply = (start: Date, end: Date) => {
@@ -706,7 +342,6 @@ const AnalyticsTab: React.FC = () => {
         start.setHours(0, 0, 0, 0);
         setDateRange({ start, end });
         setIsCustomRangeOpen(false);
-        setViewWindow([0, 100]);
     };
 
     const dateLabel = useMemo(() => {
@@ -751,7 +386,6 @@ const AnalyticsTab: React.FC = () => {
                 originalType: 'transaction',
                 customerId: txn.khataCustomerId,
                 isKhataPayment: isKhataPayment,
-                // Logic Fix: If it is a split payment (cash part of a bill), treat it as 'sales' source and count its amount towards sales volume
                 totalAmount: (isKhataPayment && !isSplitPayment) ? 0 : txn.amount, 
                 paidAmount: txn.amount,
                 source: (isKhataPayment && !isSplitPayment) ? 'recovery' : 'sales',
@@ -759,11 +393,11 @@ const AnalyticsTab: React.FC = () => {
             };
         });
 
-        // 2. Credit Sales (Khata Bills) - REMAINDER LOGIC
+        // 2. Credit Sales (Khata Bills)
         const creditTxns: UnifiedTransaction[] = khataCustomers.flatMap(cust =>
             cust.transactions
                 .filter(txn => txn.type === 'debit')
-                .map(txn => {
+                .map((txn): UnifiedTransaction | null => {
                     const immediate = txn.immediatePayment || 0;
                     const remaining = txn.amount - immediate;
                     
@@ -803,18 +437,10 @@ const AnalyticsTab: React.FC = () => {
     const financialSummary = useMemo(() => {
         let moneyInHand = 0;
         let totalSales = 0;
-        let totalMarketCredit = 0;
         let totalCash = 0;
         let totalQr = 0;
         let totalCreditVolume = 0; 
         const customerBuckets: Record<string, { creditIssued: number, payment: number }> = {};
-
-        khataCustomers.forEach(cust => {
-             const balance = cust.transactions.reduce((acc, txn) => {
-                return txn.type === 'debit' ? acc + txn.amount : acc - txn.amount;
-            }, 0);
-            totalMarketCredit += balance;
-        });
 
         filteredTransactions.forEach(txn => {
             const total = Number(txn.totalAmount) || 0;
@@ -849,115 +475,84 @@ const AnalyticsTab: React.FC = () => {
             debtRecovered,
             moneyInHand,
             totalSales,
-            totalMarketCredit,
         };
-    }, [filteredTransactions, khataCustomers]);
-
-    // --- Top Products ---
-    const topProducts = useMemo(() => {
-        const productMap = new Map<string, number>();
-        filteredTransactions.forEach(txn => {
-            if (txn.isKhataPayment && !txn.meta?.isSplitPayment) return;
-            if (txn.source === 'sales') {
-                txn.items.forEach(item => {
-                    const qty = parseFloat(String(item.quantity)) || 0;
-                    if (item.name) productMap.set(item.name, (productMap.get(item.name) || 0) + qty);
-                });
-            }
-        });
-        return Array.from(productMap.entries()).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
     }, [filteredTransactions]);
 
-    const chartData = useMemo((): MultiLinePoint[] => {
+    // --- Chart Data Transformation (Cumulative & Split) ---
+    const cumulativeChartData = useMemo(() => {
         const sortedTxns = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
-        let runCash = 0;
-        let runQr = 0;
-        let runCredit = 0; // Cumulative net credit risk
+        let cumulativeCash = 0;
+        let cumulativeQr = 0;
+        let cumulativeCredit = 0;
+        let cumulativeTotal = 0;
 
-        const points: MultiLinePoint[] = [];
-        const startTime = new Date(dateRange.start);
-        startTime.setHours(0,0,0,0);
+        const dataPoints = [];
         
-        points.push({
-            timestamp: startTime.getTime(),
-            label: isSingleDay ? startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : startTime.toLocaleDateString([], {month:'short', day:'numeric'}),
-            valCash: 0, valQr: 0, valCredit: 0, total: 0
+        // Start point (Anchor to 00:00 of Start Date)
+        const rangeStart = new Date(dateRange.start);
+        rangeStart.setHours(0,0,0,0);
+        
+        dataPoints.push({
+            time: rangeStart.getTime(),
+            timeLabel: isSingleDay 
+                ? rangeStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                : rangeStart.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+            cash: 0,
+            qr: 0,
+            credit: 0,
+            total: 0
         });
 
-        if (isSingleDay) {
-             sortedTxns.forEach(txn => {
-                const paid = Number(txn.paidAmount) || 0;
-                const total = Number(txn.totalAmount) || 0;
-                const time = new Date(txn.date).getTime();
-                
-                // Update Running Cumulative Values (Only for Credit)
-                if (txn.source === 'sales' && txn.type === 'credit') runCredit += total;
-                if (txn.source === 'recovery') runCredit -= paid;
-                
-                // Cash/QR = Transaction Pulse (Actual Amount)
-                const currentCash = (txn.type === 'cash') ? paid : 0;
-                const currentQr = (txn.type === 'qr') ? paid : 0;
-                
-                // Credit = Mountain (Cumulative)
-                const visualCredit = Math.max(0, runCredit);
+        sortedTxns.forEach(txn => {
+            const paid = Number(txn.paidAmount) || 0;
+            const total = Number(txn.totalAmount) || 0;
 
-                points.push({
-                    timestamp: time,
-                    label: new Date(txn.date).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
-                    valCash: currentCash,
-                    valQr: currentQr,
-                    valCredit: visualCredit, 
-                    total: currentCash + currentQr + visualCredit
-                });
-             });
-             
-             const now = new Date();
-             if (isToday && points[points.length-1].timestamp < now.getTime()) {
-                  points.push({
-                    timestamp: now.getTime(),
-                    label: now.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}),
-                    valCash: 0, valQr: 0,
-                    valCredit: Math.max(0, runCredit),
-                    total: Math.max(0, runCredit)
-                });
-             }
-             return points;
-        } else {
-            // Daily Granularity for Range
-            const end = new Date(dateRange.end); end.setHours(23,59,59,999);
-            let cursor = new Date(dateRange.start); cursor.setHours(0,0,0,0);
+            if (txn.type === 'cash') cumulativeCash += paid;
+            if (txn.type === 'qr') cumulativeQr += paid;
+            // Cumulative Credit Sales (not Net Risk, but Volume) for chart accuracy in 'Payment Split'
+            if (txn.type === 'credit' && txn.source === 'sales') cumulativeCredit += total;
             
-            while (cursor <= end) {
-                 const dateKey = cursor.toDateString();
-                 const dayTxns = sortedTxns.filter(t => new Date(t.date).toDateString() === dateKey);
-                 
-                 let dayCash = 0;
-                 let dayQr = 0;
-                 
-                 dayTxns.forEach(txn => {
-                     const paid = Number(txn.paidAmount) || 0;
-                     const total = Number(txn.totalAmount) || 0;
-                     if (txn.type === 'cash') dayCash += paid;
-                     else if (txn.type === 'qr') dayQr += paid;
-                     
-                     if (txn.source === 'sales' && txn.type === 'credit') runCredit += total;
-                     if (txn.source === 'recovery') runCredit -= paid;
-                 });
+            // Total Sales Volume for 'Revenue Progress'
+            if (txn.source === 'sales') cumulativeTotal += total;
 
-                 points.push({
-                     timestamp: cursor.getTime(),
-                     label: cursor.toLocaleDateString(language === 'ne' ? 'ne-NP' : 'en-US', {month:'short', day:'numeric'}),
-                     valCash: dayCash,
-                     valQr: dayQr,
-                     valCredit: Math.max(0, runCredit),
-                     total: dayCash + dayQr + Math.max(0, runCredit),
-                 });
-                 cursor.setDate(cursor.getDate() + 1);
-            }
-            return points;
+            const date = new Date(txn.date);
+            dataPoints.push({
+                time: date.getTime(),
+                timeLabel: isSingleDay 
+                    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                    : date.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+                cash: cumulativeCash,
+                qr: cumulativeQr,
+                credit: cumulativeCredit,
+                total: cumulativeTotal
+            });
+        });
+
+        // Robustness: Extend line to the end of the view window (Now or Midnight)
+        const now = new Date();
+        const rangeEnd = new Date(dateRange.end);
+        
+        // If the selected range end is in the future (or today), cap it at "now".
+        // If the selected range is in the past, extend to the absolute end of that range.
+        const effectiveEnd = (rangeEnd > now) ? now : rangeEnd;
+
+        // Only add if the last point is before the effective end
+        if (dataPoints.length > 0 && dataPoints[dataPoints.length - 1].time < effectiveEnd.getTime()) {
+             dataPoints.push({
+                time: effectiveEnd.getTime(),
+                timeLabel: isSingleDay 
+                    ? effectiveEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                    : effectiveEnd.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+                cash: cumulativeCash,
+                qr: cumulativeQr,
+                credit: cumulativeCredit,
+                total: cumulativeTotal
+            });
         }
-    }, [filteredTransactions, dateRange, isSingleDay, language, isToday]);
+
+        return dataPoints;
+    }, [filteredTransactions, dateRange, isSingleDay]);
 
     const calculateHistoricalBalance = (txn: UnifiedTransaction) => {
         if (!txn.customerId) return 0;
@@ -989,6 +584,9 @@ const AnalyticsTab: React.FC = () => {
         setConfirmDelete(null);
     };
 
+    const goalProgressPercent = Math.min(100, (financialSummary.totalSales / DAILY_GOAL) * 100).toFixed(0);
+    const showCreditAlert = financialSummary.credit > 0 && financialSummary.debtRecovered === 0;
+
     const announcementText = useMemo(() => isLoading ? localT.loading : `Showing data for ${dateLabel}`, [isLoading, dateLabel, localT]);
 
     if (loadError) return <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6"><AlertCircle className="w-12 h-12 text-red-500 mb-4" /><h3 className="text-lg font-bold text-gray-800 mb-2">Failed to load data</h3><p className="text-gray-500 mb-4">Something went wrong while processing your analytics.</p><button onClick={() => setDatePreset('today')} className="px-4 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 flex items-center gap-2"><Clock className="w-4 h-4"/> {localT.retry}</button></div>;
@@ -997,11 +595,15 @@ const AnalyticsTab: React.FC = () => {
         <div className="space-y-6 pb-24">
             <div className="sr-only" aria-live="polite">{announcementText}</div>
             <ConfirmationModal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} onConfirm={handleDelete} title={t.confirm_delete_txn_title} message={t.confirm_delete_txn_desc} language={language} />
-            <CustomRangeModal isOpen={isCustomRangeOpen} onClose={() => setIsCustomRangeOpen(false)} onApply={handleCustomRangeApply} language={language} localT={LOCAL_TEXT.en} />
-            <TopProductsModal isOpen={showTopProducts} onClose={() => setShowTopProducts(false)} products={topProducts} localT={localT} />
+            <CustomRangeModal isOpen={isCustomRangeOpen} onClose={() => setIsCustomRangeOpen(false)} onApply={handleCustomRangeApply} localT={LOCAL_TEXT.en} />
 
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold text-gray-800">{t.analytics_tab}</h1>
+            {/* Header: Title and Date Filter */}
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                     <h1 className="text-2xl font-bold text-gray-800">{t.analytics_tab}</h1>
+                     <div className="text-sm text-gray-600 mt-1">{localT.today} • {localT.end_shift}</div>
+                </div>
+                
                 <div className="relative" ref={dateFilterRef}>
                      <div className="flex items-center bg-white border rounded-lg shadow-sm p-1">
                         <button onClick={() => handleDateNav('prev')} disabled={isPastDisabled} aria-label="Previous period" className={`p-1.5 rounded-md transition-colors ${isPastDisabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-600'}`}><ChevronLeft className="w-5 h-5"/></button>
@@ -1023,54 +625,246 @@ const AnalyticsTab: React.FC = () => {
 
             {isLoading ? <SkeletonLoader /> : (
                 <div className="space-y-6 animate-in fade-in duration-500">
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-green-600" /> {localT.insight_title}</h3>
-                            {isToday && (
-                                <button onClick={() => setIsShiftEnded(!isShiftEnded)} className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 transition-all ${isShiftEnded ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700'}`}><Clock className="w-3 h-3"/> {isShiftEnded ? localT.shift_ended : localT.end_shift}</button>
-                            )}
+                    
+                    {/* Key Metrics - Gradient Cards */}
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                        <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl shadow-sm border border-green-200">
+                            <div className="text-[10px] text-gray-600 mb-1 uppercase font-bold tracking-wide">{localT.actual_money_in}</div>
+                            <div className="text-[10px] text-gray-500 mb-2">{localT.money_in_desc}</div>
+                            <div className="text-2xl font-bold text-green-700">रू {financialSummary.moneyInHand.toLocaleString()}</div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                                <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide mb-1 break-words">{localT.actual_money_in}</p>
-                                <p className="text-2xl font-extrabold text-emerald-600">Rs.{financialSummary.moneyInHand.toFixed(0)}</p>
+                        <div className="bg-gradient-to-br from-red-50 to-red-100 p-4 rounded-xl shadow-sm border border-red-200">
+                            <div className="text-[10px] text-gray-600 mb-1 uppercase font-bold tracking-wide">{localT.credit_sales}</div>
+                             <div className="text-[10px] text-gray-500 mb-2">{localT.credit_desc}</div>
+                            <div className="text-2xl font-bold text-red-600">रू {financialSummary.credit.toLocaleString()}</div>
+                        </div>
+                    </div>
+
+                    {/* Goal Progress - New! */}
+                    {isToday && (
+                        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-semibold text-gray-700">{localT.total_sales}</span>
+                                <span className="text-2xl font-bold text-blue-600">रू {financialSummary.totalSales.toLocaleString()}</span>
                             </div>
-                            <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 relative overflow-hidden">
-                                <p className="text-[10px] font-bold text-rose-800 uppercase tracking-wide mb-2">{localT.credit_sales}</p>
-                                <p className="text-2xl font-extrabold text-red-600">Rs.{financialSummary.credit.toFixed(0)}</p>
-                                {financialSummary.debtRecovered > 0 && (
-                                    <div className="mt-2 flex items-center gap-1 text-xs font-bold text-emerald-600 bg-white/60 px-2 py-1 rounded-lg w-fit">
-                                        <ArrowDownLeft className="w-3 h-3" />
-                                        {localT.debt_recovered}: Rs.{financialSummary.debtRecovered.toFixed(0)}
+                            <div className="w-full bg-gray-200 rounded-full h-2 mb-2 overflow-hidden">
+                                <div 
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-1000 ease-out"
+                                    style={{ width: `${goalProgressPercent}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-xs text-gray-500">
+                                <span>{goalProgressPercent}% {localT.on_track}</span>
+                                <span>{localT.goal_of} रू {DAILY_GOAL.toLocaleString()}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Chart Toggle View */}
+                    <div className="bg-white rounded-xl shadow-sm p-1 mb-4 flex gap-1 border border-gray-100">
+                        <button
+                            onClick={() => setChartView('cumulative')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                                chartView === 'cumulative' 
+                                ? 'bg-blue-600 text-white shadow-sm' 
+                                : 'text-gray-600 hover:bg-gray-100'
+                            }`}
+                        >
+                            {localT.revenue_progress}
+                        </button>
+                        <button
+                            onClick={() => setChartView('split')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                                chartView === 'split' 
+                                ? 'bg-blue-600 text-white shadow-sm' 
+                                : 'text-gray-600 hover:bg-gray-100'
+                            }`}
+                        >
+                            {localT.payment_split}
+                        </button>
+                    </div>
+
+                    {/* Main Recharts Section */}
+                    <div className="bg-white rounded-xl shadow-sm p-4 mb-6 border border-gray-100">
+                         {chartView === 'cumulative' ? (
+                             <>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h2 className="text-base font-semibold text-gray-800">{localT.revenue_progress}</h2>
+                                    <div className="flex items-center gap-1 text-xs">
+                                        <TrendingUp className="w-4 h-4 text-green-600" />
+                                        <span className="text-green-600 font-medium">On Track</span>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4">
-                            <div className="flex items-center justify-between mb-1">
-                                <p className="text-[10px] font-bold text-blue-800 uppercase tracking-wide flex items-center gap-1"><Scale className="w-3 h-3" /> {localT.total_market_credit}</p>
-                                <span className="text-[10px] text-blue-500 font-medium">({localT.market_credit_desc})</span>
-                            </div>
-                            <p className="text-2xl font-extrabold text-blue-600">Rs.{financialSummary.totalMarketCredit.toFixed(0)}</p>
-                        </div>
-                        {topProducts.length > 0 && (
-                            <div onClick={() => setShowTopProducts(true)} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors border border-gray-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600 shrink-0"><Trophy className="w-5 h-5" /></div>
-                                    <div className="min-w-0"><p className="text-[10px] text-gray-500 font-bold uppercase tracking-wide mb-0.5">{localT.top_seller}</p><p className="font-bold text-gray-800 text-sm truncate">{topProducts[0].name}</p></div>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0"><span className="text-xs font-bold text-gray-600 bg-white px-2 py-1 rounded border border-gray-200">{topProducts[0].qty} units</span><ChevronRight className="w-4 h-4 text-gray-400" /></div>
+                                <div className="h-[280px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={cumulativeChartData}>
+                                            <defs>
+                                                <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                                            <XAxis 
+                                                dataKey="time" 
+                                                type="number" 
+                                                domain={[dateRange.start.getTime(), dateRange.end.getTime()]} 
+                                                tickFormatter={(unix) => isSingleDay 
+                                                    ? new Date(unix).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) 
+                                                    : new Date(unix).toLocaleDateString([], { day:'numeric', month:'short' })}
+                                                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                                                stroke="#9ca3af"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                dy={10}
+                                            />
+                                            <YAxis 
+                                                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                                                stroke="#9ca3af"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tickFormatter={(val) => `रू ${val}`}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Area 
+                                                type="stepAfter" 
+                                                dataKey="total" 
+                                                stroke="#3b82f6" 
+                                                strokeWidth={3}
+                                                fill="url(#colorTotal)"
+                                                name={localT.total}
+                                                animationDuration={1000}
+                                                activeDot={{ r: 6 }}
+                                                dot={{ fill: '#3b82f6', r: 4, strokeWidth: 0 }}
+                                            />
+                                            <Line 
+                                                type="monotone" 
+                                                dataKey={() => DAILY_GOAL} 
+                                                stroke="#94a3b8" 
+                                                strokeDasharray="5 5" 
+                                                strokeWidth={2}
+                                                dot={false}
+                                                name="Daily Goal"
+                                                isAnimationActive={false}
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div className="mt-4 text-xs text-gray-500 text-center bg-blue-50/50 p-2 rounded-lg">
+                                  💡 Cumulative revenue shows your progress toward daily goal
+                                </div>
+                             </>
+                         ) : (
+                             <>
+                                <h2 className="text-base font-semibold text-gray-800 mb-4">{localT.payment_split}</h2>
+                                <div className="h-[280px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={cumulativeChartData}>
+                                            <defs>
+                                                <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
+                                                </linearGradient>
+                                                <linearGradient id="colorQr" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.6}/>
+                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                                                </linearGradient>
+                                                <linearGradient id="colorCredit" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.6}/>
+                                                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
+                                            <XAxis 
+                                                dataKey="time" 
+                                                type="number" 
+                                                domain={[dateRange.start.getTime(), dateRange.end.getTime()]} 
+                                                tickFormatter={(unix) => isSingleDay 
+                                                    ? new Date(unix).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) 
+                                                    : new Date(unix).toLocaleDateString([], { day:'numeric', month:'short' })}
+                                                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                                                stroke="#9ca3af"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                dy={10}
+                                            />
+                                            <YAxis 
+                                                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                                                stroke="#9ca3af"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tickFormatter={(val) => `रू ${val}`}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Area 
+                                                type="stepAfter" 
+                                                dataKey="cash" 
+                                                stackId="1" 
+                                                stroke="#10b981" 
+                                                strokeWidth={2}
+                                                fill="url(#colorCash)"
+                                                name={localT.cash}
+                                                animationDuration={1000}
+                                            />
+                                            <Area 
+                                                type="stepAfter" 
+                                                dataKey="qr" 
+                                                stackId="1" 
+                                                stroke="#3b82f6" 
+                                                strokeWidth={2}
+                                                fill="url(#colorQr)"
+                                                name={localT.qr}
+                                                animationDuration={1000}
+                                            />
+                                            <Area 
+                                                type="stepAfter" 
+                                                dataKey="credit" 
+                                                stackId="1" 
+                                                stroke="#ef4444" 
+                                                strokeWidth={2}
+                                                fill="url(#colorCredit)"
+                                                name={localT.credit}
+                                                animationDuration={1000}
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
+                                <div className="mt-4 flex justify-center gap-6 text-xs border-t border-gray-50 pt-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                                    <span className="text-gray-600">{localT.cash}: रू {financialSummary.totalCash.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                                    <span className="text-gray-600">{localT.qr}: रू {financialSummary.totalQr.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                                    <span className="text-gray-600">{localT.credit}: रू {financialSummary.totalCreditVolume.toLocaleString()}</span>
+                                  </div>
+                                </div>
+                             </>
+                         )}
+                    </div>
+                    
+                    {/* Credit Alert Section - Logic Based */}
+                    {showCreditAlert && (
+                         <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-xl p-4 border-l-4 border-red-500 mb-6 flex items-start gap-3">
+                            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <h3 className="font-semibold text-sm text-gray-800 mb-1">{localT.credit_alert}</h3>
+                                <p className="text-xs text-gray-600 mb-2">
+                                    {localT.credit_alert_desc.replace('{credit}', financialSummary.credit.toLocaleString())}
+                                </p>
+                                <button className="text-xs font-medium text-red-600 hover:text-red-700">
+                                    {localT.view_outstanding}
+                                </button>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
-                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200">
-                         <div className="flex flex-wrap justify-between items-center mb-4 gap-2"><div className="text-xs text-gray-400 flex items-center gap-1 ml-auto"><ZoomIn className="w-3 h-3" /> {localT.zoom_hint}</div></div>
-                        <MultiLineChart data={chartData} viewWindow={viewWindow} noDataMessage={isSingleDay ? localT.no_data_day : localT.no_data_range} mode={isSingleDay ? 'day' : 'range'} localT={localT}/>
-                        <BrushSlider data={chartData} range={viewWindow} onChange={setViewWindow} />
-                    </div>
 
-                    {/* Payment Distribution Breakdown Chart */}
+                    {/* Payment Distribution Breakdown Donut */}
                     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-200">
                         <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-4"><PieChart className="w-5 h-5 text-purple-600" /> {localT.payment_distribution}</h3>
                         <div className="flex items-center justify-between">
@@ -1085,21 +879,17 @@ const AnalyticsTab: React.FC = () => {
                             <div className="flex-1 pl-6 space-y-3 border-l border-gray-100">
                                 <div className="flex justify-between items-center text-sm">
                                     <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-500"></span><span className="text-gray-600">{localT.cash}</span></div>
-                                    <span className="font-bold text-gray-800">Rs.{financialSummary.totalCash.toFixed(0)}</span>
+                                    <span className="font-bold text-gray-800">रू {financialSummary.totalCash.toFixed(0)}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-sm">
-                                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-sky-500"></span><span className="text-gray-600">{localT.qr}</span></div>
-                                    <span className="font-bold text-gray-800">Rs.{financialSummary.totalQr.toFixed(0)}</span>
+                                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-500"></span><span className="text-gray-600">{localT.qr}</span></div>
+                                    <span className="font-bold text-gray-800">रू {financialSummary.totalQr.toFixed(0)}</span>
                                 </div>
                                 <div className="flex justify-between items-center text-sm">
                                     <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span><span className="text-gray-600">{localT.credit}</span></div>
-                                    <span className="font-bold text-gray-800">Rs.{Math.max(0, financialSummary.credit).toFixed(0)}</span>
+                                    <span className="font-bold text-gray-800">रू {Math.max(0, financialSummary.credit).toFixed(0)}</span>
                                 </div>
                             </div>
-                        </div>
-                        <div className="mt-6 grid grid-cols-2 gap-3 pt-4 border-t border-gray-100">
-                            <div className="p-3 bg-gray-50 rounded-xl text-center"><p className="text-[10px] uppercase font-bold text-gray-500 mb-1">{localT.total_sales}</p><p className="text-lg font-extrabold text-gray-900">Rs.{financialSummary.totalSales.toFixed(0)}</p></div>
-                            <div className="p-3 bg-purple-50 rounded-xl text-center border border-purple-100"><p className="text-[10px] uppercase font-bold text-purple-700 mb-1">{localT.actual_money_in}</p><p className="text-lg font-extrabold text-purple-700">Rs.{financialSummary.moneyInHand.toFixed(0)}</p></div>
                         </div>
                     </div>
 
@@ -1139,7 +929,7 @@ const AnalyticsTab: React.FC = () => {
                                                  <div className="space-y-2 text-sm">
                                                      <div className="flex justify-between font-extrabold text-gray-800">
                                                           <span>{localT.total_cash_in}</span>
-                                                          <span>Rs. {paid.toFixed(0)}</span>
+                                                          <span>रू {paid.toFixed(0)}</span>
                                                      </div>
                                                  </div>
                                                  <button 
@@ -1165,7 +955,7 @@ const AnalyticsTab: React.FC = () => {
                                                      <div className="text-right"><p className="text-xs text-gray-500">{formatDateTime(txn.date, language)}</p></div>
                                                  </div>
                                                  <div className="space-y-2 text-sm">
-                                                     <div className="flex justify-between font-extrabold text-gray-800"><span>{localT.total_cash_in}</span><span>Rs. {paid.toFixed(0)}</span></div>
+                                                     <div className="flex justify-between font-extrabold text-gray-800"><span>{localT.total_cash_in}</span><span>रू {paid.toFixed(0)}</span></div>
                                                  </div>
                                                   <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(txn); }} className="absolute top-2 right-2 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"><Trash2 className="w-4 h-4" /></button>
                                             </div>
@@ -1192,7 +982,7 @@ const AnalyticsTab: React.FC = () => {
                                                         <h4 className="font-bold text-gray-800 text-base truncate pr-2">{txn.customerName}</h4>
                                                         {txn.customerId && <p className={`text-[10px] font-medium ${currentBalanceStatus === 'advance' ? 'text-blue-500' : (currentBalanceStatus === 'due' ? 'text-red-500' : 'text-green-600')}`}>{localT.balance}: {Math.abs(historicalBalance).toFixed(0)}</p>}
                                                     </div>
-                                                    <span className={`font-extrabold text-lg ${theme.amountColor}`}>Rs. {displayAmount.toFixed(0)}</span>
+                                                    <span className={`font-extrabold text-lg ${theme.amountColor}`}>रू {displayAmount.toFixed(0)}</span>
                                                 </div>
                                                 <div className="flex justify-between items-center">
                                                     <div className="flex flex-col gap-0.5">
