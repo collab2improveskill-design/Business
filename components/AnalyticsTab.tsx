@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, TrendingUp, PieChart, Clock, AlertCircle, X, Wallet, QrCode, BookOpen, Trash2, Sparkles, ArrowDownLeft, CheckCheck, ArrowUp, ArrowDown } from 'lucide-react';
 import { 
@@ -28,6 +27,8 @@ const COLORS_HOVER = {
 const NAVIGATION_LIMIT_DAYS = 30;
 const MAX_CUSTOM_RANGE_DAYS = 30;
 const DAILY_GOAL = 15000;
+// Threshold for "High Density" charts. If data points > this, we hide dots to clean up UI.
+const DENSITY_THRESHOLD = 50; 
 
 // --- Local Translations ---
 const LOCAL_TEXT = {
@@ -262,7 +263,7 @@ const PaymentDonutChart: React.FC<{ data: { type: 'cash' | 'qr' | 'credit'; amou
 
 
 const AnalyticsTab: React.FC = () => {
-    const { language, deleteTransaction, deleteKhataTransaction, transactions, khataCustomers, unifiedRecentTransactions } = useKirana();
+    const { language, deleteTransaction, deleteKhataTransaction, transactions, khataCustomers } = useKirana();
     const t = translations[language];
     const localT = LOCAL_TEXT[language] || LOCAL_TEXT['en'];
 
@@ -374,20 +375,23 @@ const AnalyticsTab: React.FC = () => {
         const globalTxns: UnifiedTransaction[] = transactions.map(txn => {
             const isKhataPayment = !!txn.khataCustomerId;
             const isSplitPayment = txn.meta?.isSplitPayment;
+            
+            // Normalize Payment Method Type
+            const normalizedType = (txn.paymentMethod || 'cash').toLowerCase();
 
             return {
                 id: txn.id,
-                type: txn.paymentMethod as 'cash' | 'qr',
+                type: normalizedType as 'cash' | 'qr',
                 customerName: txn.customerName,
-                amount: txn.amount,
+                amount: Number(txn.amount) || 0,
                 date: txn.date,
                 description: isKhataPayment && txn.items.length === 0 ? 'Payment Received' : txn.items.map(i => `${i.name} (Qty: ${i.quantity})`).join(', '),
                 items: txn.items,
                 originalType: 'transaction',
                 customerId: txn.khataCustomerId,
                 isKhataPayment: isKhataPayment,
-                totalAmount: (isKhataPayment && !isSplitPayment) ? 0 : txn.amount, 
-                paidAmount: txn.amount,
+                totalAmount: (isKhataPayment && !isSplitPayment) ? 0 : (Number(txn.amount) || 0), 
+                paidAmount: Number(txn.amount) || 0,
                 source: (isKhataPayment && !isSplitPayment) ? 'recovery' : 'sales',
                 meta: txn.meta
             };
@@ -398,8 +402,9 @@ const AnalyticsTab: React.FC = () => {
             cust.transactions
                 .filter(txn => txn.type === 'debit')
                 .map((txn): UnifiedTransaction | null => {
-                    const immediate = txn.immediatePayment || 0;
-                    const remaining = txn.amount - immediate;
+                    const amount = Number(txn.amount) || 0;
+                    const immediate = Number(txn.immediatePayment) || 0;
+                    const remaining = amount - immediate;
                     
                     if (remaining < 0.01) return null;
 
@@ -445,17 +450,21 @@ const AnalyticsTab: React.FC = () => {
         filteredTransactions.forEach(txn => {
             const total = Number(txn.totalAmount) || 0;
             const paid = Number(txn.paidAmount) || 0;
+            const type = (txn.type || '').toLowerCase();
             
-            if (txn.source === 'sales') totalSales += total;
+            if (txn.source === 'sales') {
+                totalSales += total;
+                if (type === 'cash') totalCash += total;
+                else if (type === 'qr') totalQr += total;
+                else if (type === 'credit') totalCreditVolume += total;
+            }
+            
+            // "Money In" strictly tracks what was received (Cash flow)
             moneyInHand += paid;
-
-            if (txn.type === 'cash') totalCash += paid;
-            if (txn.type === 'qr') totalQr += paid;
-            if (txn.source === 'sales' && txn.type === 'credit') totalCreditVolume += total;
 
             if (txn.customerId) {
                 if (!customerBuckets[txn.customerId]) customerBuckets[txn.customerId] = { creditIssued: 0, payment: 0 };
-                if (txn.source === 'sales' && txn.type === 'credit') customerBuckets[txn.customerId].creditIssued += total;
+                if (txn.source === 'sales' && type === 'credit') customerBuckets[txn.customerId].creditIssued += total;
                 if (txn.source === 'recovery') customerBuckets[txn.customerId].payment += paid;
             }
         });
@@ -480,7 +489,10 @@ const AnalyticsTab: React.FC = () => {
 
     // --- Chart Data Transformation (Cumulative & Split) ---
     const cumulativeChartData = useMemo(() => {
-        const sortedTxns = [...filteredTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        // Sort Ascending for Accumulation
+        const sortedTxns = [...filteredTransactions]
+            .filter(txn => txn.source === 'sales') // Only chart sales events
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
         let cumulativeCash = 0;
         let cumulativeQr = 0;
@@ -491,8 +503,9 @@ const AnalyticsTab: React.FC = () => {
         
         // Start point (Anchor to 00:00 of Start Date)
         const rangeStart = new Date(dateRange.start);
-        rangeStart.setHours(0,0,0,0);
+        rangeStart.setHours(0, 0, 0, 0);
         
+        // Push initial 0 point at start of day
         dataPoints.push({
             time: rangeStart.getTime(),
             timeLabel: isSingleDay 
@@ -504,24 +517,40 @@ const AnalyticsTab: React.FC = () => {
             total: 0
         });
 
-        sortedTxns.forEach(txn => {
-            const paid = Number(txn.paidAmount) || 0;
-            const total = Number(txn.totalAmount) || 0;
+        // ✅ FIX: Add horizontal plateau BEFORE each transaction point
+        sortedTxns.forEach((txn, index) => {
+            const amount = Number(txn.totalAmount) || 0;
+            const type = (txn.type || '').toLowerCase();
+            const txnTime = new Date(txn.date).getTime();
 
-            if (txn.type === 'cash') cumulativeCash += paid;
-            if (txn.type === 'qr') cumulativeQr += paid;
-            // Cumulative Credit Sales (not Net Risk, but Volume) for chart accuracy in 'Payment Split'
-            if (txn.type === 'credit' && txn.source === 'sales') cumulativeCredit += total;
+            // Push a point 1ms BEFORE transaction with PREVIOUS values (creates horizontal line)
+            // This ensures proper stepping even with sparse data or type="stepAfter" quirks
+            if (index > 0 || cumulativeTotal > 0) {
+                dataPoints.push({
+                    time: txnTime - 1,
+                    timeLabel: isSingleDay 
+                        ? new Date(txnTime - 1).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                        : new Date(txnTime - 1).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+                    cash: cumulativeCash,
+                    qr: cumulativeQr,
+                    credit: cumulativeCredit,
+                    total: cumulativeTotal
+                });
+            }
+
+            // Update cumulative values
+            if (type === 'cash') cumulativeCash += amount;
+            else if (type === 'qr') cumulativeQr += amount;
+            else if (type === 'credit') cumulativeCredit += amount;
             
-            // Total Sales Volume for 'Revenue Progress'
-            if (txn.source === 'sales') cumulativeTotal += total;
+            cumulativeTotal += amount;
 
-            const date = new Date(txn.date);
+            // Push the actual transaction point with NEW values (creates vertical step)
             dataPoints.push({
-                time: date.getTime(),
+                time: txnTime,
                 timeLabel: isSingleDay 
-                    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-                    : date.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+                    ? new Date(txnTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                    : new Date(txnTime).toLocaleDateString([], { month: 'short', day: 'numeric' }),
                 cash: cumulativeCash,
                 qr: cumulativeQr,
                 credit: cumulativeCredit,
@@ -529,17 +558,16 @@ const AnalyticsTab: React.FC = () => {
             });
         });
 
-        // Robustness: Extend line to the end of the view window (Now or Midnight)
+        // Extend line to end of view window
         const now = new Date();
         const rangeEnd = new Date(dateRange.end);
+        const effectiveEnd = (rangeEnd > now && isToday) ? now : rangeEnd;
         
-        // If the selected range end is in the future (or today), cap it at "now".
-        // If the selected range is in the past, extend to the absolute end of that range.
-        const effectiveEnd = (rangeEnd > now) ? now : rangeEnd;
+        const lastPointTime = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].time : 0;
 
-        // Only add if the last point is before the effective end
-        if (dataPoints.length > 0 && dataPoints[dataPoints.length - 1].time < effectiveEnd.getTime()) {
-             dataPoints.push({
+        // Only add end point if it's meaningfully later than last transaction
+        if (effectiveEnd.getTime() > lastPointTime + 1000) { // At least 1 second gap
+            dataPoints.push({
                 time: effectiveEnd.getTime(),
                 timeLabel: isSingleDay 
                     ? effectiveEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
@@ -552,7 +580,10 @@ const AnalyticsTab: React.FC = () => {
         }
 
         return dataPoints;
-    }, [filteredTransactions, dateRange, isSingleDay]);
+    }, [filteredTransactions, dateRange, isSingleDay, isToday]);
+
+    // --- Hybrid Rendering System ---
+    const isHighDensity = cumulativeChartData.length > DENSITY_THRESHOLD;
 
     const calculateHistoricalBalance = (txn: UnifiedTransaction) => {
         if (!txn.customerId) return 0;
@@ -730,12 +761,13 @@ const AnalyticsTab: React.FC = () => {
                                                 type="stepAfter" 
                                                 dataKey="total" 
                                                 stroke="#3b82f6" 
-                                                strokeWidth={3}
+                                                strokeWidth={isHighDensity ? 3 : 2} 
                                                 fill="url(#colorTotal)"
                                                 name={localT.total}
                                                 animationDuration={1000}
                                                 activeDot={{ r: 6 }}
-                                                dot={{ fill: '#3b82f6', r: 4, strokeWidth: 0 }}
+                                                connectNulls={true}
+                                                dot={isHighDensity ? false : { fill: '#3b82f6', r: 4, strokeWidth: 0 }}
                                             />
                                             <Line 
                                                 type="monotone" 
@@ -801,30 +833,39 @@ const AnalyticsTab: React.FC = () => {
                                                 dataKey="cash" 
                                                 stackId="1" 
                                                 stroke="#10b981" 
-                                                strokeWidth={2}
+                                                strokeWidth={isHighDensity ? 3 : 2} 
                                                 fill="url(#colorCash)"
                                                 name={localT.cash}
                                                 animationDuration={1000}
+                                                activeDot={{ r: 6 }}
+                                                connectNulls={true}
+                                                dot={isHighDensity ? false : { fill: '#10b981', r: 3, strokeWidth: 0 }}
                                             />
                                             <Area 
                                                 type="stepAfter" 
                                                 dataKey="qr" 
                                                 stackId="1" 
                                                 stroke="#3b82f6" 
-                                                strokeWidth={2}
+                                                strokeWidth={isHighDensity ? 3 : 2} 
                                                 fill="url(#colorQr)"
                                                 name={localT.qr}
                                                 animationDuration={1000}
+                                                activeDot={{ r: 6 }}
+                                                connectNulls={true}
+                                                dot={isHighDensity ? false : { fill: '#3b82f6', r: 3, strokeWidth: 0 }}
                                             />
                                             <Area 
                                                 type="stepAfter" 
                                                 dataKey="credit" 
                                                 stackId="1" 
                                                 stroke="#ef4444" 
-                                                strokeWidth={2}
+                                                strokeWidth={isHighDensity ? 3 : 2} 
                                                 fill="url(#colorCredit)"
                                                 name={localT.credit}
                                                 animationDuration={1000}
+                                                activeDot={{ r: 6 }}
+                                                connectNulls={true}
+                                                dot={isHighDensity ? false : { fill: '#ef4444', r: 3, strokeWidth: 0 }}
                                             />
                                         </AreaChart>
                                     </ResponsiveContainer>
@@ -872,7 +913,7 @@ const AnalyticsTab: React.FC = () => {
                                 data={[
                                     { type: 'cash', amount: financialSummary.totalCash }, 
                                     { type: 'qr', amount: financialSummary.totalQr },
-                                    { type: 'credit', amount: Math.max(0, financialSummary.credit) }
+                                    { type: 'credit', amount: financialSummary.totalCreditVolume }
                                 ]} 
                                 localT={localT}
                             />
@@ -887,7 +928,7 @@ const AnalyticsTab: React.FC = () => {
                                 </div>
                                 <div className="flex justify-between items-center text-sm">
                                     <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span><span className="text-gray-600">{localT.credit}</span></div>
-                                    <span className="font-bold text-gray-800">रू {Math.max(0, financialSummary.credit).toFixed(0)}</span>
+                                    <span className="font-bold text-gray-800">रू {financialSummary.totalCreditVolume.toFixed(0)}</span>
                                 </div>
                             </div>
                         </div>
